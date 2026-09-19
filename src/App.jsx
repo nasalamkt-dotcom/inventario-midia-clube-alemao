@@ -739,7 +739,7 @@ const SELLER_SEARCH_TERMS = {
   academia: "suplementos alimentares academia",
   campo: "material esportivo futebol bebidas isotônicas",
   tenis: "artigos de tênis roupas esportivas",
-  piscina: "moda praia protetor solar escola de natação",
+  piscina: "moda praia protetor solar",
   estacionamento: "concessionária de veículos seguradora automóveis",
   geral: "marcas patrocinadoras de eventos",
 };
