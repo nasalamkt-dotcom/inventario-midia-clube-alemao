@@ -486,6 +486,7 @@ function EditPanel({ asset, onClose, onSave }) {
   const [valorNumero, setValorNumero] = useState(getValorNumero(asset) ?? "");
   const [periodicidade, setPeriodicidade] = useState(getPeriodicidade(asset));
   const [prazoMinimo, setPrazoMinimo] = useState(asset.prazoMinimo || "");
+  const [tamanho, setTamanho] = useState(asset.tamanho || "");
   const [negociador, setNegociador] = useState(asset.negociador || "");
   const [fotoUrl, setFotoUrl] = useState(asset.fotoUrl || "");
   const [fotoProcessing, setFotoProcessing] = useState(false);
@@ -524,6 +525,7 @@ function EditPanel({ asset, onClose, onSave }) {
       valorNumero: valorNumero === "" ? null : Number(valorNumero),
       periodicidade,
       prazoMinimo,
+      tamanho,
       negociador,
       fotoUrl,
     });
@@ -585,10 +587,6 @@ function EditPanel({ asset, onClose, onSave }) {
             <div style={styles.panelMetaLabel}>Tipo de mídia</div>
             <div style={styles.panelMetaValue}>{asset.tipoMidia}</div>
           </div>
-          <div>
-            <div style={styles.panelMetaLabel}>Tamanho</div>
-            <div style={styles.panelMetaValue}>{asset.tamanho}</div>
-          </div>
           {asset.valorReferencia && (
             <div>
               <div style={styles.panelMetaLabel}>Referência de valor</div>
@@ -636,6 +634,15 @@ function EditPanel({ asset, onClose, onSave }) {
               value={prazoMinimo}
               onChange={(e) => setPrazoMinimo(e.target.value)}
               placeholder="Ex: 3 meses"
+            />
+          </div>
+          <div style={{ ...styles.field, flex: "1 1 130px" }}>
+            <label style={styles.label}>Tamanho / Formato</label>
+            <input
+              style={styles.input}
+              value={tamanho}
+              onChange={(e) => setTamanho(e.target.value)}
+              placeholder="Ex: 3×1m"
             />
           </div>
         </div>
@@ -1276,6 +1283,7 @@ function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimIte
                   <thead>
                     <tr>
                       <th style={styles.sellerTh}>Espaço</th>
+                      <th style={styles.sellerTh}>Formato</th>
                       <th style={styles.sellerTh}>Valor</th>
                       <th style={styles.sellerTh}>Status</th>
                       <th style={styles.sellerTh}>Empresa</th>
@@ -1291,6 +1299,7 @@ function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimIte
                       return (
                         <tr key={item.id}>
                           <td style={styles.sellerTd}>{item.local}</td>
+                          <td style={styles.sellerTd}>{item.tamanho && item.tamanho !== "—" ? item.tamanho : "—"}</td>
                           <td style={styles.sellerTd}>{formatValorDisplay(item) || "—"}</td>
                           <td style={styles.sellerTd}>
                             <span style={{ ...styles.pubItemBadge, position: "static", color: m.color, background: m.bg }}>{m.label}</span>
