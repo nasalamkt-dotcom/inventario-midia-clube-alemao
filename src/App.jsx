@@ -1305,7 +1305,9 @@ function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimIte
                             <span style={{ ...styles.pubItemBadge, position: "static", color: m.color, background: m.bg }}>{m.label}</span>
                           </td>
                           <td style={styles.sellerTd}>{item.patrocinador || "—"}</td>
-                          <td style={styles.sellerTd}>{item.negociador || "—"}</td>
+                          <td style={styles.sellerTd} title={item.negociador || ""}>
+                            {item.negociador ? item.negociador.split("@")[0] : "—"}
+                          </td>
                           <td style={styles.sellerTdAction}>
                             {item.status === "disponivel" && !isClaiming && (
                               <button style={styles.sellerClaimBtn} onClick={() => startClaim(item)}>Negociar</button>
@@ -2737,45 +2739,47 @@ const styles = {
   sellerCatTitle: { fontSize: 17, fontWeight: 800, color: "#1B2A41" },
   sellerCatMeta: { fontSize: 12, color: "#6B7280", marginTop: 2 },
 
-  sellerTableWrap: { background: "#FFFFFF", border: "1px solid #E4E7EC", borderRadius: 12, overflow: "auto" },
-  sellerTable: { width: "100%", borderCollapse: "collapse", fontSize: 12.5 },
+  sellerTableWrap: { background: "#FFFFFF", border: "1px solid #E4E7EC", borderRadius: 12, overflow: "auto", WebkitOverflowScrolling: "touch" },
+  sellerTable: { width: "100%", borderCollapse: "collapse", fontSize: 11.5 },
   sellerTh: {
     textAlign: "left",
-    padding: "10px 14px",
-    fontSize: 10.5,
+    padding: "9px 10px",
+    fontSize: 10,
     fontWeight: 800,
     color: "#6B7280",
     textTransform: "uppercase",
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
     borderBottom: "1px solid #E4E7EC",
     whiteSpace: "nowrap",
     background: "#F9FAFB",
   },
   sellerTd: {
-    padding: "10px 14px",
+    padding: "9px 10px",
     borderBottom: "1px solid #F1F3F5",
     color: "#1F2933",
     fontWeight: 600,
     whiteSpace: "nowrap",
   },
-  sellerTdAction: { padding: "8px 14px", borderBottom: "1px solid #F1F3F5", textAlign: "right", whiteSpace: "nowrap" },
+  sellerTdAction: { padding: "7px 10px", borderBottom: "1px solid #F1F3F5", textAlign: "right", whiteSpace: "nowrap", width: 1 },
   sellerClaimBtn: {
-    padding: "7px 14px",
+    padding: "6px 12px",
     borderRadius: 7,
     border: "1.5px solid #F5A800",
     background: "transparent",
     color: "#1B2A41",
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: 800,
+    whiteSpace: "nowrap",
   },
   sellerReleaseBtn: {
-    padding: "7px 14px",
+    padding: "6px 12px",
     borderRadius: 7,
     border: "1px solid #E4E7EC",
     background: "#FFFFFF",
     color: "#B03A2E",
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: 700,
+    whiteSpace: "nowrap",
   },
   sellerClaimBox: {
     background: "#FBF3E7",
