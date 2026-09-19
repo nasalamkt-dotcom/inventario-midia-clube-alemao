@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadAppState, saveAppState } from "./lib/supabase.js";
+import { loadAppState, saveAppState, supabase } from "./lib/supabase.js";
 
 /* ---------------------------------------------------------
    DKP · Inventário de Mídia e Patrocínio — dados iniciais
@@ -155,7 +155,6 @@ function buildInitialData() {
 
 const INITIAL_DATA = buildInitialData();
 const STORAGE_KEY = "dkp-inventario-ativos";
-const ACCESS_PASSWORD = "dkp2026";
 
 const STATUS_META = {
   disponivel: { label: "Disponível", color: "#2F7D5C", bg: "#E7F4EE" },
@@ -272,16 +271,28 @@ function useIsMobile(breakpoint = 780) {
   return isMobile;
 }
 
-function Gate({ onUnlock, onBack }) {
+function Gate({ onBack }) {
+  const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
-  const [error, setError] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = () => {
-    if (pwd === ACCESS_PASSWORD) {
-      onUnlock();
-    } else {
-      setError(true);
+  const submit = async () => {
+    if (!email || !pwd) {
+      setError("Preencha e-mail e senha.");
+      return;
     }
+    setError("");
+    setLoading(true);
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pwd,
+    });
+    setLoading(false);
+    if (authError) {
+      setError("E-mail ou senha incorretos.");
+    }
+    // Sucesso: o próprio App detecta a sessão via onAuthStateChange e libera o acesso.
   };
 
   return (
@@ -292,21 +303,36 @@ function Gate({ onUnlock, onBack }) {
         <div style={styles.gateSub}>Acesso restrito · Setor de Eventos e Experiência do Sócio</div>
         <div style={{ marginTop: 28 }}>
           <input
-            type="password"
-            value={pwd}
+            type="email"
+            value={email}
             onChange={(e) => {
-              setPwd(e.target.value);
-              setError(false);
+              setEmail(e.target.value);
+              setError("");
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
             }}
-            placeholder="Senha de acesso"
+            placeholder="Seu e-mail"
             style={styles.gateInput}
             autoFocus
           />
-          {error && <div style={styles.gateError}>Senha incorreta. Tente novamente.</div>}
-          <button type="button" onClick={submit} style={styles.gateButton}>Entrar</button>
+          <input
+            type="password"
+            value={pwd}
+            onChange={(e) => {
+              setPwd(e.target.value);
+              setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            placeholder="Sua senha"
+            style={{ ...styles.gateInput, marginTop: 10 }}
+          />
+          {error && <div style={styles.gateError}>{error}</div>}
+          <button type="button" onClick={submit} style={styles.gateButton} disabled={loading}>
+            {loading ? "Entrando…" : "Entrar"}
+          </button>
           {onBack && (
             <button type="button" onClick={onBack} style={styles.gateBackLink}>
               ← Ver portfólio público
@@ -1108,6 +1134,7 @@ function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess
 export default function App() {
   const [mode, setMode] = useState("public"); // 'public' | 'team'
   const [unlocked, setUnlocked] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState(INITIAL_DATA);
   const [categoryPhotos, setCategoryPhotos] = useState(EMPTY_PHOTOS);
@@ -1125,6 +1152,21 @@ export default function App() {
   useEffect(() => {
     setEditingPhoto(false);
   }, [activeCategory]);
+
+  // Detecta login/logout via Supabase Auth (substitui a antiga senha fixa).
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        setUnlocked(true);
+        setUserEmail(data.session.user.email || "");
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUnlocked(!!session);
+      setUserEmail(session?.user?.email || "");
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   // Load from persistent shared storage (Supabase) — roda sempre, independente
   // de login, porque a página pública também precisa dos dados.
@@ -1227,7 +1269,7 @@ export default function App() {
   }
 
   if (!unlocked) {
-    return <Gate onUnlock={() => setUnlocked(true)} onBack={() => setMode("public")} />;
+    return <Gate onBack={() => setMode("public")} />;
   }
 
   return (
@@ -1252,11 +1294,14 @@ export default function App() {
         </div>
         <div style={{ ...styles.headerRight, ...(isMobile ? styles.headerRightMobile : {}) }}>
           {!isMobile && (
-            <div style={styles.saveIndicator}>
-              {saveState === "saving" && "Salvando…"}
-              {saveState === "saved" && "✓ Salvo"}
-              {saveState === "error" && "Falha ao salvar"}
-            </div>
+            <>
+              <div style={styles.userEmailTag} title={userEmail}>{userEmail}</div>
+              <div style={styles.saveIndicator}>
+                {saveState === "saving" && "Salvando…"}
+                {saveState === "saved" && "✓ Salvo"}
+                {saveState === "error" && "Falha ao salvar"}
+              </div>
+            </>
           )}
           <button
             style={{ ...styles.headerGhostBtn, ...(isMobile ? styles.headerBtnMobile : {}) }}
@@ -1270,8 +1315,15 @@ export default function App() {
           >
             {view === "dashboard" ? "Ver inventário" : "Dashboard"}
           </button>
+          <button
+            style={{ ...styles.headerGhostBtn, ...(isMobile ? styles.headerBtnMobile : {}) }}
+            onClick={() => supabase.auth.signOut()}
+          >
+            Sair
+          </button>
           {isMobile && (
             <div style={styles.saveIndicatorMobile}>
+              {userEmail && `${userEmail} · `}
               {saveState === "saving" && "Salvando…"}
               {saveState === "saved" && "✓ Salvo"}
               {saveState === "error" && "Falha ao salvar"}
@@ -1487,6 +1539,14 @@ const styles = {
     fontWeight: 700,
   },
   saveIndicator: { fontSize: 12.5, color: "#B7C0CE", minWidth: 90, textAlign: "right" },
+  userEmailTag: {
+    fontSize: 12,
+    color: "#B7C0CE",
+    maxWidth: 160,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   saveIndicatorMobile: { fontSize: 11.5, color: "#B7C0CE", width: "100%", textAlign: "left" },
   dashboardBtn: {
     padding: "10px 18px",
