@@ -724,6 +724,27 @@ function EditPanel({ asset, onClose, onSave }) {
 }
 
 const EMPTY_PHOTOS = CATEGORIES.reduce((acc, c) => ({ ...acc, [c.id]: "" }), {});
+const EMPTY_SELLER_NOTES = CATEGORIES.reduce((acc, c) => ({ ...acc, [c.id]: "" }), {});
+// Ponto de partida sugerido, conforme exemplo dado pela equipe.
+EMPTY_SELLER_NOTES.piscina = "Movimento Moda Praia\nRush Moda Praia";
+
+// Termo de busca sugerido por categoria, para o link "Ver no Google Maps" do portal de vendedores.
+const SELLER_SEARCH_TERMS = {
+  areia: "moda praia protetor solar",
+  poli: "material esportivo multiesporte",
+  tenismesa: "artigos esportivos",
+  academia: "suplementos alimentares academia",
+  campo: "material esportivo futebol bebidas isotônicas",
+  tenis: "artigos de tênis roupas esportivas",
+  piscina: "moda praia protetor solar escola de natação",
+  estacionamento: "concessionária de veículos seguradora automóveis",
+  geral: "marcas patrocinadoras de eventos",
+};
+
+function mapsSearchLink(term) {
+  const query = `${term} perto do Clube Alemão de Pernambuco, Recife`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
 
 function Dashboard({ assets, onBack, isMobile }) {
   const kpis = useMemo(() => {
@@ -904,7 +925,7 @@ const PUBLIC_STATUS_META = {
   indisponivel: { label: "Indisponível", color: "#C4232C", bg: "#FBE7E8" },
 };
 
-function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess }) {
+function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess, onSellerAccess }) {
   const [activeCategory, setActiveCategory] = useState("all");
   const stats = useMemo(() => {
     const total = assets.length;
@@ -938,9 +959,17 @@ function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess
           <img src={CREST_LOGO} alt="Deutscher Klub Pernambuco" style={styles.pubUtilityCrest} />
           <span style={styles.pubUtilityName}>Clube Alemão de Pernambuco</span>
         </div>
-        <button style={styles.pubTeamLink} onClick={onTeamAccess}>
-          Acesso da equipe
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            style={{ ...styles.pubTeamLink, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#FFFFFF" }}
+            onClick={onSellerAccess}
+          >
+            Acesso do vendedor
+          </button>
+          <button style={styles.pubTeamLink} onClick={onTeamAccess}>
+            Acesso da equipe
+          </button>
+        </div>
       </div>
 
       {dbError && (
@@ -1131,6 +1160,124 @@ function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess
   );
 }
 
+function SellerPortal({ assets, categoryPhotos, sellerNotes, onSaveNote, onLogout, onBack }) {
+  const [drafts, setDrafts] = useState(sellerNotes);
+  const [savingCat, setSavingCat] = useState(null);
+
+  const byCategory = useMemo(() => {
+    const map = {};
+    CATEGORIES.forEach((c) => (map[c.id] = []));
+    assets.forEach((a) => {
+      if (map[a.categoria]) map[a.categoria].push(a);
+    });
+    return map;
+  }, [assets]);
+
+  const saveNote = async (catId) => {
+    setSavingCat(catId);
+    await onSaveNote(catId, drafts[catId] || "");
+    setSavingCat(null);
+  };
+
+  return (
+    <div style={styles.pubApp}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+        * { box-sizing: border-box; font-family: 'Manrope', -apple-system, sans-serif; }
+        a { text-decoration: none; }
+      `}</style>
+
+      <div style={styles.pubUtilityBar}>
+        <div style={styles.pubUtilityLeft}>
+          <img src={CREST_LOGO} alt="Deutscher Klub Pernambuco" style={styles.pubUtilityCrest} />
+          <span style={styles.pubUtilityName}>Portal do Vendedor · DKP</span>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={styles.pubTeamLink} onClick={onBack}>Ver portfólio público</button>
+          <button style={{ ...styles.pubTeamLink, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#FFFFFF" }} onClick={onLogout}>
+            Sair
+          </button>
+        </div>
+      </div>
+
+      <main style={styles.pubMain}>
+        <div style={{ padding: "20px 0 0" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1B2A41", margin: 0 }}>Prospecção por espaço</h1>
+          <p style={{ fontSize: 13.5, color: "#6B7280", marginTop: 6 }}>
+            Para cada espaço, veja o resumo do inventário e busque empresas da região que combinam com o perfil do
+            público daquele ambiente. O botão abre o Google Maps de verdade, numa nova aba, já com a busca pronta.
+          </p>
+        </div>
+
+        {CATEGORIES.filter((c) => byCategory[c.id]).map((c) => {
+          const items = byCategory[c.id];
+          const totalMapeado = items.length;
+          const totalDisponivel = items.filter((i) => i.status === "disponivel").length;
+          const photo = categoryPhotos[c.id];
+          const tint = CATEGORY_TINTS[c.id] || "#1B2A41";
+          return (
+            <section key={c.id} style={styles.pubCategorySection}>
+              <div style={{ ...styles.pubCategoryBanner, background: photo ? "#000" : tint }}>
+                <PhotoImg src={photo} alt={c.name} style={styles.pubCategoryBannerImg} fallback={<div style={styles.pubCategoryBannerIcon}>{c.icon}</div>} />
+                <div style={styles.pubCategoryBannerOverlay} />
+                <div style={styles.pubCategoryBannerContent}>
+                  <div style={styles.pubCategoryBannerAccent} />
+                  <div style={styles.pubCategoryBannerTitle}>{c.name}</div>
+                  <div style={styles.pubCategoryBannerMeta}>{c.meta}</div>
+                </div>
+              </div>
+
+              <div style={styles.pubCategoryStatsCard}>
+                <div style={styles.pubStatItem}>
+                  <div style={styles.pubStatValue}>{totalMapeado}</div>
+                  <div style={styles.pubStatLabel}>Espaços mapeados</div>
+                </div>
+                <div style={styles.pubStatDivider} />
+                <div style={styles.pubStatItem}>
+                  <div style={{ ...styles.pubStatValue, color: "#2F7D5C" }}>{totalDisponivel}</div>
+                  <div style={styles.pubStatLabel}>Disponíveis agora</div>
+                </div>
+              </div>
+
+              <div style={styles.sellerNoteBox}>
+                <div style={styles.sellerNoteHeader}>
+                  <a
+                    href={mapsSearchLink(SELLER_SEARCH_TERMS[c.id] || c.name)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.sellerMapsBtn}
+                  >
+                    Ver empresas no Google Maps →
+                  </a>
+                </div>
+                <label style={styles.sellerNoteLabel}>Empresas identificadas (anotações da equipe)</label>
+                <textarea
+                  style={styles.sellerNoteTextarea}
+                  rows={3}
+                  value={drafts[c.id] || ""}
+                  onChange={(e) => setDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                  placeholder="Ex: Movimento Moda Praia, Rush Moda Praia..."
+                />
+                <button
+                  style={styles.sellerNoteSaveBtn}
+                  onClick={() => saveNote(c.id)}
+                  disabled={savingCat === c.id}
+                >
+                  {savingCat === c.id ? "Salvando…" : "Salvar anotações"}
+                </button>
+              </div>
+            </section>
+          );
+        })}
+      </main>
+
+      <footer style={styles.pubFooter}>
+        Clube Alemão de Pernambuco · Portal do Vendedor · Estruturação NaSala Marketing Digital
+      </footer>
+    </div>
+  );
+}
+
 export default function App() {
   const [mode, setMode] = useState("public"); // 'public' | 'team'
   const [unlocked, setUnlocked] = useState(false);
@@ -1138,6 +1285,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState(INITIAL_DATA);
   const [categoryPhotos, setCategoryPhotos] = useState(EMPTY_PHOTOS);
+  const [sellerNotes, setSellerNotes] = useState(EMPTY_SELLER_NOTES);
   const [activeCategory, setActiveCategory] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -1178,12 +1326,14 @@ export default function App() {
         if (cancelled) return;
         const loadedAssets = Array.isArray(parsed) ? parsed : parsed?.assets;
         const loadedPhotos = Array.isArray(parsed) ? EMPTY_PHOTOS : parsed?.categoryPhotos || EMPTY_PHOTOS;
+        const loadedNotes = Array.isArray(parsed) ? EMPTY_SELLER_NOTES : parsed?.sellerNotes || EMPTY_SELLER_NOTES;
         if (Array.isArray(loadedAssets) && loadedAssets.length > 0) {
           setAssets(loadedAssets);
           setCategoryPhotos({ ...EMPTY_PHOTOS, ...loadedPhotos });
+          setSellerNotes({ ...EMPTY_SELLER_NOTES, ...loadedNotes });
         } else {
           // Banco ainda vazio — semeia com os dados iniciais do levantamento.
-          await saveAppState({ assets: INITIAL_DATA, categoryPhotos: EMPTY_PHOTOS });
+          await saveAppState({ assets: INITIAL_DATA, categoryPhotos: EMPTY_PHOTOS, sellerNotes: EMPTY_SELLER_NOTES });
         }
       } catch (err) {
         console.error("Falha ao carregar dados do Supabase", err);
@@ -1200,7 +1350,7 @@ export default function App() {
   const persist = useCallback(async (nextAssets, nextPhotos) => {
     setSaveState("saving");
     try {
-      const res = await saveAppState({ assets: nextAssets, categoryPhotos: nextPhotos });
+      const res = await saveAppState({ assets: nextAssets, categoryPhotos: nextPhotos, sellerNotes });
       setSaveState(res ? "saved" : "error");
       setTimeout(() => setSaveState("idle"), 1500);
     } catch (err) {
@@ -1208,7 +1358,17 @@ export default function App() {
       setSaveState("error");
       setTimeout(() => setSaveState("idle"), 2000);
     }
-  }, []);
+  }, [sellerNotes]);
+
+  const handleSaveSellerNote = useCallback(async (catId, text) => {
+    const nextNotes = { ...sellerNotes, [catId]: text };
+    setSellerNotes(nextNotes);
+    try {
+      await saveAppState({ assets, categoryPhotos, sellerNotes: nextNotes });
+    } catch (err) {
+      console.error("Erro ao salvar anotações do vendedor", err);
+    }
+  }, [assets, categoryPhotos, sellerNotes]);
 
   const handleSaveAsset = (updated) => {
     setAssets((prev) => {
@@ -1264,12 +1424,26 @@ export default function App() {
         loading={loading}
         dbError={dbError}
         onTeamAccess={() => setMode("team")}
+        onSellerAccess={() => setMode("seller")}
       />
     );
   }
 
   if (!unlocked) {
     return <Gate onBack={() => setMode("public")} />;
+  }
+
+  if (mode === "seller") {
+    return (
+      <SellerPortal
+        assets={assets}
+        categoryPhotos={categoryPhotos}
+        sellerNotes={sellerNotes}
+        onSaveNote={handleSaveSellerNote}
+        onLogout={() => supabase.auth.signOut()}
+        onBack={() => setMode("public")}
+      />
+    );
   }
 
   return (
@@ -2320,4 +2494,45 @@ const styles = {
   pubFinalCtaTitle: { color: "#FFFFFF", fontSize: 22, fontWeight: 800, maxWidth: 520, margin: "0 auto" },
   pubFinalCtaSub: { color: "rgba(255,255,255,0.75)", fontSize: 13.5, marginTop: 10 },
   pubFooter: { textAlign: "center", padding: "20px", fontSize: 11.5, color: "#9AA1AC", background: "#F6F7F8" },
+
+  sellerNoteBox: {
+    background: "#FFFFFF",
+    border: "1px solid #E4E7EC",
+    borderRadius: 12,
+    padding: 16,
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  sellerNoteHeader: { display: "flex" },
+  sellerMapsBtn: {
+    display: "inline-block",
+    padding: "10px 18px",
+    borderRadius: 8,
+    background: "#1B2A41",
+    color: "#FFFFFF",
+    fontSize: 12.5,
+    fontWeight: 800,
+  },
+  sellerNoteLabel: { fontSize: 11.5, fontWeight: 700, color: "#6B7280", marginTop: 4 },
+  sellerNoteTextarea: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid #E4E7EC",
+    fontSize: 13,
+    outline: "none",
+    resize: "vertical",
+    fontFamily: "'Manrope', -apple-system, sans-serif",
+  },
+  sellerNoteSaveBtn: {
+    alignSelf: "flex-start",
+    padding: "9px 16px",
+    borderRadius: 8,
+    border: "none",
+    background: "#F5A800",
+    color: "#1B2A41",
+    fontSize: 12.5,
+    fontWeight: 800,
+  },
 };
