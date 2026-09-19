@@ -1378,6 +1378,7 @@ export default function App() {
   const [mode, setMode] = useState("public"); // 'public' | 'team'
   const [unlocked, setUnlocked] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState("");
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState(INITIAL_DATA);
   const [categoryPhotos, setCategoryPhotos] = useState(EMPTY_PHOTOS);
@@ -1392,22 +1393,26 @@ export default function App() {
   const [dbError, setDbError] = useState(false);
   const debouncedSearch = useDebounced(search, 200);
   const isMobile = useIsMobile();
+  const isTeamRole = userRole === "equipe";
 
   useEffect(() => {
     setEditingPhoto(false);
   }, [activeCategory]);
 
   // Detecta login/logout via Supabase Auth (substitui a antiga senha fixa).
+  // O papel (equipe/vendedor) vem do metadata da conta, definido no cadastro.
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
         setUnlocked(true);
         setUserEmail(data.session.user.email || "");
+        setUserRole(data.session.user.user_metadata?.role || "");
       }
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUnlocked(!!session);
       setUserEmail(session?.user?.email || "");
+      setUserRole(session?.user?.user_metadata?.role || "");
     });
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -1456,66 +1461,58 @@ export default function App() {
     }
   }, [prospects]);
 
+  // Lista de prospecção, reserva e liberação de espaço passam por funções
+  // específicas no banco (RPC) — só elas têm permissão de escrita para
+  // contas com papel "vendedor". Ver supabase-vendedores-update.sql.
   const handleUpdateProspects = useCallback(async (catId, nextList) => {
-    const nextProspects = { ...prospects, [catId]: nextList };
-    setProspects(nextProspects);
+    setProspects((prev) => ({ ...prev, [catId]: nextList })); // otimista
     try {
-      await saveAppState({ assets, categoryPhotos, prospects: nextProspects });
+      const { data, error } = await supabase.rpc("update_prospects", { p_category: catId, p_list: nextList });
+      if (error) throw error;
+      if (data) {
+        if (Array.isArray(data.assets)) setAssets(data.assets);
+        if (data.categoryPhotos) setCategoryPhotos(data.categoryPhotos);
+        if (data.prospects) setProspects(data.prospects);
+      }
     } catch (err) {
       console.error("Erro ao salvar lista de prospecção", err);
     }
-  }, [assets, categoryPhotos, prospects]);
+  }, []);
 
-  // Reserva um espaço para negociação. Busca o estado mais recente do banco
-  // antes de gravar, para reduzir o risco de duas pessoas reservarem o
-  // mesmo espaço ao mesmo tempo. Retorna false se não estiver mais disponível.
+  // Reserva um espaço para negociação. A função no banco confere, na hora,
+  // se o espaço ainda está Disponível antes de gravar — reduz bastante o
+  // risco de duas pessoas reservarem o mesmo espaço ao mesmo tempo.
   const handleClaimItem = useCallback(async (itemId, empresa) => {
-    let latest;
     try {
-      latest = await loadAppState();
-    } catch (err) {
-      console.error("Erro ao verificar estado atual", err);
-      return false;
-    }
-    const latestAssets = Array.isArray(latest) ? latest : latest?.assets;
-    const latestPhotos = Array.isArray(latest) ? categoryPhotos : latest?.categoryPhotos || categoryPhotos;
-    const latestProspects = Array.isArray(latest) ? prospects : latest?.prospects || prospects;
-    if (!Array.isArray(latestAssets)) return false;
-
-    const current = latestAssets.find((a) => a.id === itemId);
-    if (!current || current.status !== "disponivel") {
-      setAssets(latestAssets);
-      setCategoryPhotos(latestPhotos);
-      setProspects(latestProspects);
-      return false;
-    }
-
-    const updatedItem = { ...current, status: "negociacao", patrocinador: empresa, negociador: userEmail };
-    const nextAssets = latestAssets.map((a) => (a.id === itemId ? updatedItem : a));
-    try {
-      await saveAppState({ assets: nextAssets, categoryPhotos: latestPhotos, prospects: latestProspects });
-      setAssets(nextAssets);
-      setCategoryPhotos(latestPhotos);
-      setProspects(latestProspects);
-      return true;
+      const { data, error } = await supabase.rpc("claim_item", { p_item_id: itemId, p_empresa: empresa });
+      if (error) throw error;
+      if (data?.data) {
+        if (Array.isArray(data.data.assets)) setAssets(data.data.assets);
+        if (data.data.categoryPhotos) setCategoryPhotos(data.data.categoryPhotos);
+        if (data.data.prospects) setProspects(data.data.prospects);
+      }
+      return !!data?.ok;
     } catch (err) {
       console.error("Erro ao reservar espaço", err);
       return false;
     }
-  }, [categoryPhotos, prospects, userEmail]);
+  }, []);
 
   // Libera um espaço que estava em negociação, voltando para Disponível.
+  // A função no banco só permite quem reservou originalmente fazer isso.
   const handleReleaseItem = useCallback(async (itemId) => {
-    const nextAssets = assets.map((a) =>
-      a.id === itemId ? { ...a, status: "disponivel", patrocinador: "", negociador: "" } : a
-    );
-    setAssets(nextAssets);
     try {
-      await saveAppState({ assets: nextAssets, categoryPhotos, prospects });
+      const { data, error } = await supabase.rpc("release_item", { p_item_id: itemId });
+      if (error) throw error;
+      if (data?.data) {
+        if (Array.isArray(data.data.assets)) setAssets(data.data.assets);
+        if (data.data.categoryPhotos) setCategoryPhotos(data.data.categoryPhotos);
+        if (data.data.prospects) setProspects(data.data.prospects);
+      }
     } catch (err) {
       console.error("Erro ao liberar espaço", err);
     }
-  }, [assets, categoryPhotos, prospects]);
+  }, []);
 
   const handleSaveAsset = (updated) => {
     setAssets((prev) => {
@@ -1593,6 +1590,35 @@ export default function App() {
         onLogout={() => supabase.auth.signOut()}
         onBack={() => setMode("public")}
       />
+    );
+  }
+
+  // mode === "team" a partir daqui — exige papel "equipe" especificamente.
+  if (!isTeamRole) {
+    return (
+      <div style={styles.gateWrap}>
+        <div style={styles.gateCard}>
+          <img src={CREST_LOGO} alt="Deutscher Klub Pernambuco" style={styles.gateCrestImg} />
+          <div style={styles.gateTitle}>Acesso restrito</div>
+          <div style={styles.gateSub}>
+            Essa conta ({userEmail}) não tem permissão para a área de gestão da equipe — só para o Portal do
+            Vendedor.
+          </div>
+          <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
+            <button style={styles.gateButton} onClick={() => setMode("seller")}>Ir para o Portal do Vendedor</button>
+            <button
+              type="button"
+              style={styles.gateBackLink}
+              onClick={() => {
+                supabase.auth.signOut();
+                setMode("public");
+              }}
+            >
+              Sair e voltar ao início
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
