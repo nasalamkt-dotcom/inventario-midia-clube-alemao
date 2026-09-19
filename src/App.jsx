@@ -878,7 +878,7 @@ const PUBLIC_STATUS_META = {
   indisponivel: { label: "Indisponível", color: "#C4232C", bg: "#FBE7E8" },
 };
 
-function PublicShowcase({ assets, categoryPhotos, loading, onTeamAccess }) {
+function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess }) {
   const [activeCategory, setActiveCategory] = useState("all");
   const stats = useMemo(() => {
     const total = assets.length;
@@ -916,6 +916,13 @@ function PublicShowcase({ assets, categoryPhotos, loading, onTeamAccess }) {
           Acesso da equipe
         </button>
       </div>
+
+      {dbError && (
+        <div style={styles.dbErrorBanner}>
+          Não foi possível conectar ao banco de dados agora — os dados exibidos podem estar
+          desatualizados. Avise a equipe técnica.
+        </div>
+      )}
 
       <section style={styles.pubHero}>
         <div style={styles.pubHeroShapeRed} />
@@ -1111,6 +1118,7 @@ export default function App() {
   const [editingPhoto, setEditingPhoto] = useState(false);
   const [view, setView] = useState("inventory"); // 'inventory' | 'dashboard'
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
+  const [dbError, setDbError] = useState(false);
   const debouncedSearch = useDebounced(search, 200);
   const isMobile = useIsMobile();
 
@@ -1137,6 +1145,7 @@ export default function App() {
         }
       } catch (err) {
         console.error("Falha ao carregar dados do Supabase", err);
+        if (!cancelled) setDbError(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1211,6 +1220,7 @@ export default function App() {
         assets={assets}
         categoryPhotos={categoryPhotos}
         loading={loading}
+        dbError={dbError}
         onTeamAccess={() => setMode("team")}
       />
     );
@@ -1269,6 +1279,13 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {dbError && (
+        <div style={styles.dbErrorBanner}>
+          Não foi possível conectar ao banco de dados agora — o que você editar pode não ser
+          salvo. Recarregue a página; se persistir, avise a equipe técnica.
+        </div>
+      )}
 
       {view === "dashboard" ? (
         <Dashboard assets={assets} onBack={() => setView("inventory")} isMobile={isMobile} />
@@ -2001,6 +2018,14 @@ const styles = {
 
   /* ---------------- Página pública (vitrine comercial) ---------------- */
   pubApp: { minHeight: "100vh", background: "#F6F7F8", color: "#1F2933" },
+  dbErrorBanner: {
+    background: "#FBE7E8",
+    color: "#B03A2E",
+    textAlign: "center",
+    padding: "10px 16px",
+    fontSize: 12.5,
+    fontWeight: 700,
+  },
 
   pubUtilityBar: {
     display: "flex",
