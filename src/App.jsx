@@ -724,9 +724,12 @@ function EditPanel({ asset, onClose, onSave }) {
 }
 
 const EMPTY_PHOTOS = CATEGORIES.reduce((acc, c) => ({ ...acc, [c.id]: "" }), {});
-const EMPTY_SELLER_NOTES = CATEGORIES.reduce((acc, c) => ({ ...acc, [c.id]: "" }), {});
+const EMPTY_PROSPECTS = CATEGORIES.reduce((acc, c) => ({ ...acc, [c.id]: [] }), {});
 // Ponto de partida sugerido, conforme exemplo dado pela equipe.
-EMPTY_SELLER_NOTES.piscina = "Movimento Moda Praia\nRush Moda Praia";
+EMPTY_PROSPECTS.piscina = [
+  { id: "p1", empresa: "Movimento Moda Praia" },
+  { id: "p2", empresa: "Rush Moda Praia" },
+];
 
 // Termo de busca sugerido por categoria, para o link "Ver no Google Maps" do portal de vendedores.
 const SELLER_SEARCH_TERMS = {
@@ -1160,9 +1163,12 @@ function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess
   );
 }
 
-function SellerPortal({ assets, categoryPhotos, sellerNotes, onSaveNote, onLogout, onBack }) {
-  const [drafts, setDrafts] = useState(sellerNotes);
-  const [savingCat, setSavingCat] = useState(null);
+function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimItem, onReleaseItem, onUpdateProspects, onLogout, onBack }) {
+  const [claimingId, setClaimingId] = useState(null);
+  const [claimCompany, setClaimCompany] = useState("");
+  const [claimError, setClaimError] = useState("");
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [newProspect, setNewProspect] = useState({});
 
   const byCategory = useMemo(() => {
     const map = {};
@@ -1173,10 +1179,40 @@ function SellerPortal({ assets, categoryPhotos, sellerNotes, onSaveNote, onLogou
     return map;
   }, [assets]);
 
-  const saveNote = async (catId) => {
-    setSavingCat(catId);
-    await onSaveNote(catId, drafts[catId] || "");
-    setSavingCat(null);
+  const startClaim = (item) => {
+    setClaimingId(item.id);
+    setClaimCompany("");
+    setClaimError("");
+  };
+
+  const confirmClaim = async (item) => {
+    if (!claimCompany.trim()) {
+      setClaimError("Informe o nome da empresa.");
+      return;
+    }
+    setClaimBusy(true);
+    setClaimError("");
+    const ok = await onClaimItem(item.id, claimCompany.trim());
+    setClaimBusy(false);
+    if (ok) {
+      setClaimingId(null);
+      setClaimCompany("");
+    } else {
+      setClaimError("Esse espaço não está mais disponível — outra pessoa já deve ter reservado ou a venda já foi confirmada.");
+    }
+  };
+
+  const addProspect = (catId) => {
+    const name = (newProspect[catId] || "").trim();
+    if (!name) return;
+    const current = prospects[catId] || [];
+    onUpdateProspects(catId, [...current, { id: "p" + Date.now(), empresa: name }]);
+    setNewProspect((prev) => ({ ...prev, [catId]: "" }));
+  };
+
+  const removeProspect = (catId, prospectId) => {
+    const current = prospects[catId] || [];
+    onUpdateProspects(catId, current.filter((p) => p.id !== prospectId));
   };
 
   return (
@@ -1192,7 +1228,8 @@ function SellerPortal({ assets, categoryPhotos, sellerNotes, onSaveNote, onLogou
           <img src={CREST_LOGO} alt="Deutscher Klub Pernambuco" style={styles.pubUtilityCrest} />
           <span style={styles.pubUtilityName}>Portal do Vendedor · DKP</span>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ ...styles.userEmailTag, color: "rgba(255,255,255,0.75)" }} title={userEmail}>{userEmail}</span>
           <button style={styles.pubTeamLink} onClick={onBack}>Ver portfólio público</button>
           <button style={{ ...styles.pubTeamLink, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#FFFFFF" }} onClick={onLogout}>
             Sair
@@ -1204,67 +1241,126 @@ function SellerPortal({ assets, categoryPhotos, sellerNotes, onSaveNote, onLogou
         <div style={{ padding: "20px 0 0" }}>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1B2A41", margin: 0 }}>Prospecção por espaço</h1>
           <p style={{ fontSize: 13.5, color: "#6B7280", marginTop: 6 }}>
-            Para cada espaço, veja o resumo do inventário e busque empresas da região que combinam com o perfil do
-            público daquele ambiente. O botão abre o Google Maps de verdade, numa nova aba, já com a busca pronta.
+            Reserve um espaço assim que iniciar uma negociação — isso avisa o resto da equipe e evita que duas
+            pessoas negociem o mesmo espaço. A confirmação final da venda é feita pela equipe do clube.
           </p>
         </div>
 
         {CATEGORIES.filter((c) => byCategory[c.id]).map((c) => {
           const items = byCategory[c.id];
-          const totalMapeado = items.length;
-          const totalDisponivel = items.filter((i) => i.status === "disponivel").length;
           const photo = categoryPhotos[c.id];
           const tint = CATEGORY_TINTS[c.id] || "#1B2A41";
+          const catProspects = prospects[c.id] || [];
           return (
             <section key={c.id} style={styles.pubCategorySection}>
-              <div style={{ ...styles.pubCategoryBanner, background: photo ? "#000" : tint }}>
-                <PhotoImg src={photo} alt={c.name} style={styles.pubCategoryBannerImg} fallback={<div style={styles.pubCategoryBannerIcon}>{c.icon}</div>} />
-                <div style={styles.pubCategoryBannerOverlay} />
-                <div style={styles.pubCategoryBannerContent}>
-                  <div style={styles.pubCategoryBannerAccent} />
-                  <div style={styles.pubCategoryBannerTitle}>{c.name}</div>
-                  <div style={styles.pubCategoryBannerMeta}>{c.meta}</div>
+              <div style={styles.sellerCatHeader}>
+                <div style={{ ...styles.sellerCatThumb, background: photo ? "#000" : tint }}>
+                  <PhotoImg src={photo} alt={c.name} style={styles.sellerCatThumbImg} fallback={<span style={{ fontSize: 22 }}>{c.icon}</span>} />
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={styles.sellerCatTitle}>{c.name}</div>
+                  <div style={styles.sellerCatMeta}>{c.meta}</div>
+                </div>
+                <a
+                  href={mapsSearchLink(SELLER_SEARCH_TERMS[c.id] || c.name)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={styles.sellerMapsBtn}
+                >
+                  Ver no Google Maps →
+                </a>
               </div>
 
-              <div style={styles.pubCategoryStatsCard}>
-                <div style={styles.pubStatItem}>
-                  <div style={styles.pubStatValue}>{totalMapeado}</div>
-                  <div style={styles.pubStatLabel}>Espaços mapeados</div>
-                </div>
-                <div style={styles.pubStatDivider} />
-                <div style={styles.pubStatItem}>
-                  <div style={{ ...styles.pubStatValue, color: "#2F7D5C" }}>{totalDisponivel}</div>
-                  <div style={styles.pubStatLabel}>Disponíveis agora</div>
-                </div>
+              <div style={styles.sellerTableWrap}>
+                <table style={styles.sellerTable}>
+                  <thead>
+                    <tr>
+                      <th style={styles.sellerTh}>Espaço</th>
+                      <th style={styles.sellerTh}>Valor</th>
+                      <th style={styles.sellerTh}>Status</th>
+                      <th style={styles.sellerTh}>Empresa</th>
+                      <th style={styles.sellerTh}>Responsável</th>
+                      <th style={styles.sellerTh}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => {
+                      const m = PUBLIC_STATUS_META[item.status] || PUBLIC_STATUS_META.disponivel;
+                      const isClaiming = claimingId === item.id;
+                      const isMine = item.negociador && item.negociador === userEmail;
+                      return (
+                        <tr key={item.id}>
+                          <td style={styles.sellerTd}>{item.local}</td>
+                          <td style={styles.sellerTd}>{formatValorDisplay(item) || "—"}</td>
+                          <td style={styles.sellerTd}>
+                            <span style={{ ...styles.pubItemBadge, position: "static", color: m.color, background: m.bg }}>{m.label}</span>
+                          </td>
+                          <td style={styles.sellerTd}>{item.patrocinador || "—"}</td>
+                          <td style={styles.sellerTd}>{item.negociador || "—"}</td>
+                          <td style={styles.sellerTdAction}>
+                            {item.status === "disponivel" && !isClaiming && (
+                              <button style={styles.sellerClaimBtn} onClick={() => startClaim(item)}>Negociar</button>
+                            )}
+                            {item.status === "negociacao" && isMine && (
+                              <button style={styles.sellerReleaseBtn} onClick={() => onReleaseItem(item.id)}>Cancelar</button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
+
+              {claimingId && items.some((i) => i.id === claimingId) && (
+                <div style={styles.sellerClaimBox}>
+                  <div style={styles.sellerNoteLabel}>Nome da empresa que você está negociando</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input
+                      style={{ ...styles.sellerNoteTextarea, flex: "1 1 200px" }}
+                      value={claimCompany}
+                      onChange={(e) => setClaimCompany(e.target.value)}
+                      placeholder="Ex: Rush Moda Praia"
+                      autoFocus
+                    />
+                    <button
+                      style={styles.sellerNoteSaveBtn}
+                      disabled={claimBusy}
+                      onClick={() => confirmClaim(items.find((i) => i.id === claimingId))}
+                    >
+                      {claimBusy ? "Confirmando…" : "Confirmar reserva"}
+                    </button>
+                    <button style={styles.sellerReleaseBtn} onClick={() => setClaimingId(null)}>Cancelar</button>
+                  </div>
+                  {claimError && <div style={styles.bannerError}>{claimError}</div>}
+                </div>
+              )}
 
               <div style={styles.sellerNoteBox}>
-                <div style={styles.sellerNoteHeader}>
-                  <a
-                    href={mapsSearchLink(SELLER_SEARCH_TERMS[c.id] || c.name)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.sellerMapsBtn}
-                  >
-                    Ver empresas no Google Maps →
-                  </a>
+                <label style={styles.sellerNoteLabel}>Empresas com potencial (ainda não contatadas)</label>
+                <div style={styles.sellerProspectList}>
+                  {catProspects.length === 0 && (
+                    <span style={{ fontSize: 12.5, color: "#9AA1AC" }}>Nenhuma ainda — pesquise no Google Maps e adicione aqui.</span>
+                  )}
+                  {catProspects.map((p) => (
+                    <span key={p.id} style={styles.sellerProspectChip}>
+                      {p.empresa}
+                      <button style={styles.sellerProspectRemove} onClick={() => removeProspect(c.id, p.id)}>×</button>
+                    </span>
+                  ))}
                 </div>
-                <label style={styles.sellerNoteLabel}>Empresas identificadas (anotações da equipe)</label>
-                <textarea
-                  style={styles.sellerNoteTextarea}
-                  rows={3}
-                  value={drafts[c.id] || ""}
-                  onChange={(e) => setDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                  placeholder="Ex: Movimento Moda Praia, Rush Moda Praia..."
-                />
-                <button
-                  style={styles.sellerNoteSaveBtn}
-                  onClick={() => saveNote(c.id)}
-                  disabled={savingCat === c.id}
-                >
-                  {savingCat === c.id ? "Salvando…" : "Salvar anotações"}
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    style={{ ...styles.sellerNoteTextarea, flex: "1 1 200px" }}
+                    value={newProspect[c.id] || ""}
+                    onChange={(e) => setNewProspect((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addProspect(c.id);
+                    }}
+                    placeholder="Nome da empresa"
+                  />
+                  <button style={styles.sellerNoteSaveBtn} onClick={() => addProspect(c.id)}>Adicionar</button>
+                </div>
               </div>
             </section>
           );
@@ -1285,7 +1381,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState(INITIAL_DATA);
   const [categoryPhotos, setCategoryPhotos] = useState(EMPTY_PHOTOS);
-  const [sellerNotes, setSellerNotes] = useState(EMPTY_SELLER_NOTES);
+  const [prospects, setProspects] = useState(EMPTY_PROSPECTS);
   const [activeCategory, setActiveCategory] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -1326,14 +1422,14 @@ export default function App() {
         if (cancelled) return;
         const loadedAssets = Array.isArray(parsed) ? parsed : parsed?.assets;
         const loadedPhotos = Array.isArray(parsed) ? EMPTY_PHOTOS : parsed?.categoryPhotos || EMPTY_PHOTOS;
-        const loadedNotes = Array.isArray(parsed) ? EMPTY_SELLER_NOTES : parsed?.sellerNotes || EMPTY_SELLER_NOTES;
+        const loadedProspects = Array.isArray(parsed) ? EMPTY_PROSPECTS : parsed?.prospects || EMPTY_PROSPECTS;
         if (Array.isArray(loadedAssets) && loadedAssets.length > 0) {
           setAssets(loadedAssets);
           setCategoryPhotos({ ...EMPTY_PHOTOS, ...loadedPhotos });
-          setSellerNotes({ ...EMPTY_SELLER_NOTES, ...loadedNotes });
+          setProspects({ ...EMPTY_PROSPECTS, ...loadedProspects });
         } else {
           // Banco ainda vazio — semeia com os dados iniciais do levantamento.
-          await saveAppState({ assets: INITIAL_DATA, categoryPhotos: EMPTY_PHOTOS, sellerNotes: EMPTY_SELLER_NOTES });
+          await saveAppState({ assets: INITIAL_DATA, categoryPhotos: EMPTY_PHOTOS, prospects: EMPTY_PROSPECTS });
         }
       } catch (err) {
         console.error("Falha ao carregar dados do Supabase", err);
@@ -1350,7 +1446,7 @@ export default function App() {
   const persist = useCallback(async (nextAssets, nextPhotos) => {
     setSaveState("saving");
     try {
-      const res = await saveAppState({ assets: nextAssets, categoryPhotos: nextPhotos, sellerNotes });
+      const res = await saveAppState({ assets: nextAssets, categoryPhotos: nextPhotos, prospects });
       setSaveState(res ? "saved" : "error");
       setTimeout(() => setSaveState("idle"), 1500);
     } catch (err) {
@@ -1358,17 +1454,68 @@ export default function App() {
       setSaveState("error");
       setTimeout(() => setSaveState("idle"), 2000);
     }
-  }, [sellerNotes]);
+  }, [prospects]);
 
-  const handleSaveSellerNote = useCallback(async (catId, text) => {
-    const nextNotes = { ...sellerNotes, [catId]: text };
-    setSellerNotes(nextNotes);
+  const handleUpdateProspects = useCallback(async (catId, nextList) => {
+    const nextProspects = { ...prospects, [catId]: nextList };
+    setProspects(nextProspects);
     try {
-      await saveAppState({ assets, categoryPhotos, sellerNotes: nextNotes });
+      await saveAppState({ assets, categoryPhotos, prospects: nextProspects });
     } catch (err) {
-      console.error("Erro ao salvar anotações do vendedor", err);
+      console.error("Erro ao salvar lista de prospecção", err);
     }
-  }, [assets, categoryPhotos, sellerNotes]);
+  }, [assets, categoryPhotos, prospects]);
+
+  // Reserva um espaço para negociação. Busca o estado mais recente do banco
+  // antes de gravar, para reduzir o risco de duas pessoas reservarem o
+  // mesmo espaço ao mesmo tempo. Retorna false se não estiver mais disponível.
+  const handleClaimItem = useCallback(async (itemId, empresa) => {
+    let latest;
+    try {
+      latest = await loadAppState();
+    } catch (err) {
+      console.error("Erro ao verificar estado atual", err);
+      return false;
+    }
+    const latestAssets = Array.isArray(latest) ? latest : latest?.assets;
+    const latestPhotos = Array.isArray(latest) ? categoryPhotos : latest?.categoryPhotos || categoryPhotos;
+    const latestProspects = Array.isArray(latest) ? prospects : latest?.prospects || prospects;
+    if (!Array.isArray(latestAssets)) return false;
+
+    const current = latestAssets.find((a) => a.id === itemId);
+    if (!current || current.status !== "disponivel") {
+      setAssets(latestAssets);
+      setCategoryPhotos(latestPhotos);
+      setProspects(latestProspects);
+      return false;
+    }
+
+    const updatedItem = { ...current, status: "negociacao", patrocinador: empresa, negociador: userEmail };
+    const nextAssets = latestAssets.map((a) => (a.id === itemId ? updatedItem : a));
+    try {
+      await saveAppState({ assets: nextAssets, categoryPhotos: latestPhotos, prospects: latestProspects });
+      setAssets(nextAssets);
+      setCategoryPhotos(latestPhotos);
+      setProspects(latestProspects);
+      return true;
+    } catch (err) {
+      console.error("Erro ao reservar espaço", err);
+      return false;
+    }
+  }, [categoryPhotos, prospects, userEmail]);
+
+  // Libera um espaço que estava em negociação, voltando para Disponível.
+  const handleReleaseItem = useCallback(async (itemId) => {
+    const nextAssets = assets.map((a) =>
+      a.id === itemId ? { ...a, status: "disponivel", patrocinador: "", negociador: "" } : a
+    );
+    setAssets(nextAssets);
+    try {
+      await saveAppState({ assets: nextAssets, categoryPhotos, prospects });
+    } catch (err) {
+      console.error("Erro ao liberar espaço", err);
+    }
+  }, [assets, categoryPhotos, prospects]);
 
   const handleSaveAsset = (updated) => {
     setAssets((prev) => {
@@ -1438,8 +1585,11 @@ export default function App() {
       <SellerPortal
         assets={assets}
         categoryPhotos={categoryPhotos}
-        sellerNotes={sellerNotes}
-        onSaveNote={handleSaveSellerNote}
+        prospects={prospects}
+        userEmail={userEmail}
+        onClaimItem={handleClaimItem}
+        onReleaseItem={handleReleaseItem}
+        onUpdateProspects={handleUpdateProspects}
         onLogout={() => supabase.auth.signOut()}
         onBack={() => setMode("public")}
       />
@@ -2534,5 +2684,94 @@ const styles = {
     color: "#1B2A41",
     fontSize: 12.5,
     fontWeight: 800,
+  },
+
+  sellerCatHeader: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  sellerCatThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    overflow: "hidden",
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#FFFFFF",
+  },
+  sellerCatThumbImg: { width: "100%", height: "100%", objectFit: "cover" },
+  sellerCatTitle: { fontSize: 17, fontWeight: 800, color: "#1B2A41" },
+  sellerCatMeta: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+
+  sellerTableWrap: { background: "#FFFFFF", border: "1px solid #E4E7EC", borderRadius: 12, overflow: "auto" },
+  sellerTable: { width: "100%", borderCollapse: "collapse", fontSize: 12.5 },
+  sellerTh: {
+    textAlign: "left",
+    padding: "10px 14px",
+    fontSize: 10.5,
+    fontWeight: 800,
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+    borderBottom: "1px solid #E4E7EC",
+    whiteSpace: "nowrap",
+    background: "#F9FAFB",
+  },
+  sellerTd: {
+    padding: "10px 14px",
+    borderBottom: "1px solid #F1F3F5",
+    color: "#1F2933",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  sellerTdAction: { padding: "8px 14px", borderBottom: "1px solid #F1F3F5", textAlign: "right", whiteSpace: "nowrap" },
+  sellerClaimBtn: {
+    padding: "7px 14px",
+    borderRadius: 7,
+    border: "1.5px solid #F5A800",
+    background: "transparent",
+    color: "#1B2A41",
+    fontSize: 11.5,
+    fontWeight: 800,
+  },
+  sellerReleaseBtn: {
+    padding: "7px 14px",
+    borderRadius: 7,
+    border: "1px solid #E4E7EC",
+    background: "#FFFFFF",
+    color: "#B03A2E",
+    fontSize: 11.5,
+    fontWeight: 700,
+  },
+  sellerClaimBox: {
+    background: "#FBF3E7",
+    border: "1px solid #EFD9AE",
+    borderRadius: 10,
+    padding: 14,
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  sellerProspectList: { display: "flex", flexWrap: "wrap", gap: 8 },
+  sellerProspectChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 6px 6px 12px",
+    borderRadius: 999,
+    background: "#F1F3F5",
+    color: "#3D4757",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  sellerProspectRemove: {
+    border: "none",
+    background: "rgba(0,0,0,0.08)",
+    borderRadius: "50%",
+    width: 18,
+    height: 18,
+    lineHeight: 1,
+    color: "#3D4757",
+    fontSize: 13,
+    cursor: "pointer",
   },
 };
