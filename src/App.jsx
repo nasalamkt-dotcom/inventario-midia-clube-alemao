@@ -478,7 +478,108 @@ function StatusBadge({ status }) {
   );
 }
 
-function EditPanel({ asset, onClose, onSave }) {
+function NewItemModal({ onClose, onCreate }) {
+  const [categoria, setCategoria] = useState(CATEGORIES[0].id);
+  const [local, setLocal] = useState("");
+  const [tipoMidia, setTipoMidia] = useState("");
+  const [tamanho, setTamanho] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!local.trim()) {
+      setError("Dê um nome pra esse espaço (ex: \"Muro lateral — pos. 9\").");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    await onCreate({
+      id: "a-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      categoria,
+      local: local.trim(),
+      tipoMidia: tipoMidia.trim() || "A definir",
+      tamanho: tamanho.trim() || "",
+      status: "disponivel",
+      patrocinador: "",
+      responsavel: "",
+      observacoes: "",
+      valorReferencia: "",
+      valorNumero: null,
+      periodicidade: "",
+      prazoMinimo: "",
+      negociador: "",
+      fotoUrl: "",
+    });
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.panel} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.panelHeader}>
+          <div>
+            <div style={styles.panelEyebrow}>Novo espaço</div>
+            <div style={styles.panelTitle}>Cadastrar mídia</div>
+          </div>
+          <button style={styles.closeBtn} onClick={onClose} aria-label="Fechar">×</button>
+        </div>
+
+        <div style={styles.field}>
+          <label style={styles.label}>Espaço físico</label>
+          <select style={styles.input} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+            {CATEGORIES.map((c) => (
+              <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={styles.field}>
+          <label style={styles.label}>Nome / posição</label>
+          <input
+            style={styles.input}
+            value={local}
+            onChange={(e) => setLocal(e.target.value)}
+            placeholder='Ex: "Muro lateral — pos. 9"'
+            autoFocus
+          />
+        </div>
+
+        <div style={styles.fieldRow}>
+          <div style={{ ...styles.field, flex: "1 1 160px" }}>
+            <label style={styles.label}>Tipo de mídia</label>
+            <input
+              style={styles.input}
+              value={tipoMidia}
+              onChange={(e) => setTipoMidia(e.target.value)}
+              placeholder="Ex: Banner fixo"
+            />
+          </div>
+          <div style={{ ...styles.field, flex: "1 1 160px" }}>
+            <label style={styles.label}>Tamanho / Formato</label>
+            <input
+              style={styles.input}
+              value={tamanho}
+              onChange={(e) => setTamanho(e.target.value)}
+              placeholder="Ex: 3×1m"
+            />
+          </div>
+        </div>
+
+        {error && <div style={styles.bannerError}>{error}</div>}
+
+        <div style={{ ...styles.panelFooter, justifyContent: "flex-end" }}>
+          <button style={styles.secondaryBtn} onClick={onClose}>Cancelar</button>
+          <button style={styles.primaryBtn} onClick={submit} disabled={saving}>
+            {saving ? "Criando…" : "Criar espaço"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditPanel({ asset, onClose, onSave, onDelete }) {
   const [status, setStatus] = useState(asset.status);
   const [patrocinador, setPatrocinador] = useState(asset.patrocinador);
   const [responsavel, setResponsavel] = useState(asset.responsavel);
@@ -491,6 +592,8 @@ function EditPanel({ asset, onClose, onSave }) {
   const [fotoUrl, setFotoUrl] = useState(asset.fotoUrl || "");
   const [fotoProcessing, setFotoProcessing] = useState(false);
   const [fotoError, setFotoError] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const fotoInputRef = useRef(null);
 
   const emphasize = status === "negociacao" || status === "indisponivel";
@@ -529,6 +632,13 @@ function EditPanel({ asset, onClose, onSave }) {
       negociador,
       fotoUrl,
     });
+    onClose();
+  };
+
+  const confirmDelete = async () => {
+    setDeleting(true);
+    await onDelete(asset.id);
+    setDeleting(false);
     onClose();
   };
 
@@ -721,10 +831,28 @@ function EditPanel({ asset, onClose, onSave }) {
           />
         </div>
 
-        <div style={styles.panelFooter}>
-          <button style={styles.secondaryBtn} onClick={onClose}>Cancelar</button>
-          <button style={styles.primaryBtn} onClick={save}>Salvar alterações</button>
-        </div>
+        {confirmingDelete ? (
+          <div style={styles.deleteConfirmBox}>
+            <div style={styles.deleteConfirmText}>
+              Tem certeza? Essa ação é <strong>irreversível</strong> — o espaço "{asset.local}" será apagado
+              permanentemente do inventário.
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button style={styles.secondaryBtn} onClick={() => setConfirmingDelete(false)}>Cancelar</button>
+              <button style={styles.deleteConfirmBtn} onClick={confirmDelete} disabled={deleting}>
+                {deleting ? "Excluindo…" : "Sim, excluir permanentemente"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={styles.panelFooter}>
+            <button style={styles.deleteLinkBtn} onClick={() => setConfirmingDelete(true)}>Excluir espaço</button>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button style={styles.secondaryBtn} onClick={onClose}>Cancelar</button>
+              <button style={styles.primaryBtn} onClick={save}>Salvar alterações</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1439,6 +1567,7 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
+  const [creatingNew, setCreatingNew] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState(false);
   const [view, setView] = useState("inventory"); // 'inventory' | 'dashboard'
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
@@ -1573,6 +1702,18 @@ export default function App() {
       persist(next, categoryPhotos);
       return next;
     });
+  };
+
+  const handleCreateAsset = async (newAsset) => {
+    const next = [...assets, newAsset];
+    setAssets(next);
+    await persist(next, categoryPhotos);
+  };
+
+  const handleDeleteAsset = async (id) => {
+    const next = assets.filter((a) => a.id !== id);
+    setAssets(next);
+    await persist(next, categoryPhotos);
   };
 
   const handleSavePhoto = (categoryId, url) => {
@@ -1865,6 +2006,9 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <button style={styles.newItemBtn} onClick={() => setCreatingNew(true)}>
+              + Novo espaço
+            </button>
           </div>
 
           {loading ? (
@@ -1923,7 +2067,11 @@ export default function App() {
       )}
 
       {editing && (
-        <EditPanel asset={editing} onClose={() => setEditing(null)} onSave={handleSaveAsset} />
+        <EditPanel asset={editing} onClose={() => setEditing(null)} onSave={handleSaveAsset} onDelete={handleDeleteAsset} />
+      )}
+
+      {creatingNew && (
+        <NewItemModal onClose={() => setCreatingNew(false)} onCreate={handleCreateAsset} />
       )}
     </div>
   );
@@ -2079,6 +2227,17 @@ const styles = {
 
   main: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 14 },
   toolbar: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" },
+  newItemBtn: {
+    padding: "10px 16px",
+    borderRadius: 8,
+    border: "none",
+    background: "#1B2A41",
+    color: "#FFFFFF",
+    fontSize: 12.5,
+    fontWeight: 800,
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+  },
   searchInput: {
     flex: "1 1 260px",
     padding: "10px 14px",
@@ -2380,7 +2539,35 @@ const styles = {
     fontWeight: 700,
     background: "#FFF",
   },
-  panelFooter: { display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 22 },
+  panelFooter: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 22 },
+  deleteLinkBtn: {
+    border: "none",
+    background: "transparent",
+    color: "#B03A2E",
+    fontSize: 12.5,
+    fontWeight: 700,
+    padding: "8px 4px",
+  },
+  deleteConfirmBox: {
+    marginTop: 22,
+    padding: 14,
+    borderRadius: 10,
+    background: "#FBE7E8",
+    border: "1px solid #F3C6C1",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  deleteConfirmText: { fontSize: 12.5, color: "#7A2A20", lineHeight: 1.5 },
+  deleteConfirmBtn: {
+    padding: "10px 16px",
+    borderRadius: 8,
+    border: "none",
+    background: "#B03A2E",
+    color: "#FFFFFF",
+    fontSize: 12.5,
+    fontWeight: 800,
+  },
   secondaryBtn: {
     padding: "10px 16px",
     borderRadius: 8,
