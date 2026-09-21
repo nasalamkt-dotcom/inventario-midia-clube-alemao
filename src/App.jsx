@@ -335,7 +335,7 @@ function Gate({ onBack }) {
           </button>
           {onBack && (
             <button type="button" onClick={onBack} style={styles.gateBackLink}>
-              ← Ver portfólio público
+              ← Voltar ao início
             </button>
           )}
         </div>
@@ -935,6 +935,47 @@ const PUBLIC_STATUS_META = {
   indisponivel: { label: "Indisponível", color: "#C4232C", bg: "#FBE7E8" },
 };
 
+function LandingHub({ onPublic, onTeam, onSeller }) {
+  return (
+    <div style={styles.pubApp}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+        * { box-sizing: border-box; font-family: 'Manrope', -apple-system, sans-serif; }
+        a { text-decoration: none; }
+      `}</style>
+
+      <section style={{ ...styles.pubHero, minHeight: "100vh", display: "flex", alignItems: "center" }}>
+        <div style={styles.pubHeroShapeRed} />
+        <div style={styles.pubHeroShapeGold} />
+        <div style={styles.pubHeroOverlay} />
+        <div style={{ ...styles.pubHeroContent, maxWidth: 640, width: "100%", padding: "0 16px" }}>
+          <img src={CREST_LOGO} alt="Deutscher Klub Pernambuco" style={styles.pubHeroCrestImg} />
+          <div style={styles.pubHeroEyebrow}>Deutscher Klub Pernambuco</div>
+          <h1 style={{ ...styles.pubHeroTitle, fontSize: 28 }}>Inventário de Mídia e Patrocínio</h1>
+
+          <button onClick={onPublic} style={styles.landingBigBanner}>
+            <div style={styles.landingBigBannerTitle}>Ver Portfólio Público →</div>
+            <div style={styles.landingBigBannerSub}>Conheça os espaços de mídia disponíveis para patrocínio</div>
+          </button>
+
+          <div style={styles.landingSmallRow}>
+            <button onClick={onTeam} style={styles.landingSmallCard}>
+              <div style={styles.landingSmallIcon}>🔧</div>
+              <div style={styles.landingSmallTitle}>Acesso da Equipe</div>
+              <div style={styles.landingSmallSub}>Gestão do inventário</div>
+            </button>
+            <button onClick={onSeller} style={styles.landingSmallCard}>
+              <div style={styles.landingSmallIcon}>🤝</div>
+              <div style={styles.landingSmallTitle}>Acesso do Vendedor</div>
+              <div style={styles.landingSmallSub}>Prospecção comercial</div>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function PublicShowcase({ assets, categoryPhotos, loading, dbError, onTeamAccess, onSellerAccess }) {
   const [activeCategory, setActiveCategory] = useState("all");
   const stats = useMemo(() => {
@@ -1386,7 +1427,7 @@ function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimIte
 }
 
 export default function App() {
-  const [mode, setMode] = useState("public"); // 'public' | 'team'
+  const [mode, setMode] = useState("landing"); // 'landing' | 'public' | 'team' | 'seller'
   const [unlocked, setUnlocked] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userRole, setUserRole] = useState("");
@@ -1572,6 +1613,16 @@ export default function App() {
     });
   }, [assets, activeCategory, statusFilter, debouncedSearch]);
 
+  if (mode === "landing") {
+    return (
+      <LandingHub
+        onPublic={() => setMode("public")}
+        onTeam={() => setMode("team")}
+        onSeller={() => setMode("seller")}
+      />
+    );
+  }
+
   if (mode === "public") {
     return (
       <PublicShowcase
@@ -1586,7 +1637,7 @@ export default function App() {
   }
 
   if (!unlocked) {
-    return <Gate onBack={() => setMode("public")} />;
+    return <Gate onBack={() => setMode("landing")} />;
   }
 
   if (mode === "seller") {
@@ -1608,7 +1659,7 @@ export default function App() {
                 style={styles.gateBackLink}
                 onClick={() => {
                   supabase.auth.signOut();
-                  setMode("public");
+                  setMode("landing");
                 }}
               >
                 Sair e voltar ao início
@@ -1652,7 +1703,7 @@ export default function App() {
               style={styles.gateBackLink}
               onClick={() => {
                 supabase.auth.signOut();
-                setMode("public");
+                setMode("landing");
               }}
             >
               Sair e voltar ao início
@@ -2546,6 +2597,32 @@ const styles = {
   pubHeroTitle: { color: "#FFFFFF", fontSize: 34, fontWeight: 800, lineHeight: 1.25, marginTop: 14 },
   pubHeroSub: { color: "rgba(255,255,255,0.8)", fontSize: 15, lineHeight: 1.6, marginTop: 14, maxWidth: 560, marginLeft: "auto", marginRight: "auto" },
   pubHeroCtas: { display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 28 },
+
+  landingBigBanner: {
+    display: "block",
+    width: "100%",
+    marginTop: 32,
+    padding: "26px 24px",
+    borderRadius: 16,
+    border: "none",
+    background: "#F5A800",
+    textAlign: "center",
+    boxShadow: "0 12px 30px rgba(0,0,0,0.25)",
+  },
+  landingBigBannerTitle: { fontSize: 20, fontWeight: 800, color: "#1B2A41" },
+  landingBigBannerSub: { fontSize: 13, fontWeight: 600, color: "rgba(27,42,65,0.75)", marginTop: 6 },
+  landingSmallRow: { display: "flex", gap: 14, marginTop: 16, flexWrap: "wrap" },
+  landingSmallCard: {
+    flex: "1 1 200px",
+    padding: "20px 18px",
+    borderRadius: 14,
+    border: "1.5px solid rgba(255,255,255,0.25)",
+    background: "rgba(255,255,255,0.08)",
+    textAlign: "center",
+  },
+  landingSmallIcon: { fontSize: 26 },
+  landingSmallTitle: { color: "#FFFFFF", fontSize: 14.5, fontWeight: 800, marginTop: 8 },
+  landingSmallSub: { color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 3 },
   pubCtaPrimary: { padding: "14px 30px", borderRadius: 10, background: "#25D366", color: "#0B3B1E", fontWeight: 800, fontSize: 14.5 },
   pubCtaSecondary: {
     padding: "13px 26px",
