@@ -1405,6 +1405,7 @@ export default function App() {
   const debouncedSearch = useDebounced(search, 200);
   const isMobile = useIsMobile();
   const isTeamRole = userRole === "equipe";
+  const isVendorRole = userRole === "vendedor";
 
   useEffect(() => {
     setEditingPhoto(false);
@@ -1589,6 +1590,34 @@ export default function App() {
   }
 
   if (mode === "seller") {
+    if (!isVendorRole) {
+      return (
+        <div style={styles.gateWrap}>
+          <div style={styles.gateCard}>
+            <img src={CREST_LOGO} alt="Deutscher Klub Pernambuco" style={styles.gateCrestImg} />
+            <div style={styles.gateTitle}>Acesso restrito</div>
+            <div style={styles.gateSub}>
+              Essa conta ({userEmail}) não tem permissão para o Portal do Vendedor{isTeamRole ? " — só para a área da equipe." : "."}
+            </div>
+            <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
+              {isTeamRole && (
+                <button style={styles.gateButton} onClick={() => setMode("team")}>Ir para a área da equipe</button>
+              )}
+              <button
+                type="button"
+                style={styles.gateBackLink}
+                onClick={() => {
+                  supabase.auth.signOut();
+                  setMode("public");
+                }}
+              >
+                Sair e voltar ao início
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <SellerPortal
         assets={assets}
@@ -1612,11 +1641,12 @@ export default function App() {
           <img src={CREST_LOGO} alt="Deutscher Klub Pernambuco" style={styles.gateCrestImg} />
           <div style={styles.gateTitle}>Acesso restrito</div>
           <div style={styles.gateSub}>
-            Essa conta ({userEmail}) não tem permissão para a área de gestão da equipe — só para o Portal do
-            Vendedor.
+            Essa conta ({userEmail}) não tem permissão para a área de gestão da equipe{isVendorRole ? " — só para o Portal do Vendedor." : "."}
           </div>
           <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
-            <button style={styles.gateButton} onClick={() => setMode("seller")}>Ir para o Portal do Vendedor</button>
+            {isVendorRole && (
+              <button style={styles.gateButton} onClick={() => setMode("seller")}>Ir para o Portal do Vendedor</button>
+            )}
             <button
               type="button"
               style={styles.gateBackLink}
