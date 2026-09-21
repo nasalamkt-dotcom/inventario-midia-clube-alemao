@@ -937,22 +937,107 @@ function Dashboard({ assets, onBack, isMobile }) {
 
   const namingRights = useMemo(() => assets.filter((a) => a.tipoMidia === "Naming completo"), [assets]);
 
+  const overallStatus = useMemo(() => {
+    const total = assets.length;
+    let disponivel = 0, negociacao = 0, indisponivel = 0;
+    assets.forEach((a) => {
+      if (a.status === "disponivel") disponivel += 1;
+      else if (a.status === "negociacao") negociacao += 1;
+      else indisponivel += 1;
+    });
+    return { total, disponivel, negociacao, indisponivel };
+  }, [assets]);
+
+  const topOpportunity = byCategory[0];
+
+  const namingSummary = useMemo(() => {
+    let sold = 0;
+    let remainingPotential = 0;
+    let soldValue = 0;
+    namingRights.forEach((n) => {
+      const valor = getValorNumero(n) || 0;
+      if (n.status === "indisponivel") {
+        sold += 1;
+        soldValue += valor;
+      } else {
+        remainingPotential += valor;
+      }
+    });
+    return { total: namingRights.length, sold, remainingPotential, soldValue };
+  }, [namingRights]);
+
+  const loadedAt = useMemo(
+    () => new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }),
+    []
+  );
+
+  const donutGradient = useMemo(() => {
+    const { total, disponivel, negociacao } = overallStatus;
+    if (total === 0) return "conic-gradient(#E4E7EC 0% 100%)";
+    const p1 = (disponivel / total) * 100;
+    const p2 = p1 + (negociacao / total) * 100;
+    return `conic-gradient(${STATUS_META.disponivel.color} 0% ${p1}%, ${STATUS_META.negociacao.color} ${p1}% ${p2}%, ${STATUS_META.indisponivel.color} ${p2}% 100%)`;
+  }, [overallStatus]);
+
   return (
     <div style={{ ...styles.dashWrap, ...(isMobile ? styles.dashWrapMobile : {}) }}>
       <div style={styles.dashHeaderRow}>
         <div>
           <div style={styles.dashTitle}>Dashboard financeiro</div>
           <div style={styles.dashSub}>Visão consolidada de receita e ocupação comercial</div>
+          <div style={styles.dashUpdated}>Dados carregados em {loadedAt}</div>
         </div>
         <button style={styles.secondaryBtn} onClick={onBack}>← Voltar ao inventário</button>
       </div>
 
-      <div style={styles.dashKpiGrid}>
-        <div style={styles.dashKpiCard}>
-          <div style={styles.dashKpiLabel}>Receita recorrente atual (mês)</div>
-          <div style={styles.dashKpiValue}>{formatBRL(kpis.currentMonthly) || "R$ 0"}</div>
-          <div style={styles.dashKpiNote}>Ativos já vendidos (Indisponível), equivalente mensal</div>
+      <div style={{ ...styles.dashHeroRow, ...(isMobile ? { flexDirection: "column" } : {}) }}>
+        <div style={styles.dashHeroCard}>
+          <div style={styles.dashHeroLabel}>Receita recorrente atual (mês)</div>
+          <div style={styles.dashHeroValue}>{formatBRL(kpis.currentMonthly) || "R$ 0"}</div>
+          <div style={styles.dashHeroNote}>Soma de tudo já vendido (Indisponível), equivalente mensal</div>
         </div>
+
+        <div style={styles.dashDonutCard}>
+          <div style={{ ...styles.dashDonut, background: donutGradient }}>
+            <div style={styles.dashDonutHole}>
+              <div style={styles.dashDonutTotal}>{overallStatus.total}</div>
+              <div style={styles.dashDonutTotalLabel}>espaços</div>
+            </div>
+          </div>
+          <div style={styles.dashDonutLegend}>
+            <div style={styles.dashLegendItem}>
+              <span style={{ ...styles.dashLegendDot, background: STATUS_META.disponivel.color }} />
+              Disponível <strong>{overallStatus.disponivel}</strong>
+            </div>
+            <div style={styles.dashLegendItem}>
+              <span style={{ ...styles.dashLegendDot, background: STATUS_META.negociacao.color }} />
+              Em negociação <strong>{overallStatus.negociacao}</strong>
+            </div>
+            <div style={styles.dashLegendItem}>
+              <span style={{ ...styles.dashLegendDot, background: STATUS_META.indisponivel.color }} />
+              Indisponível <strong>{overallStatus.indisponivel}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {topOpportunity && topOpportunity.potentialMonthly - topOpportunity.currentMonthly > 0 && (
+        <div style={styles.dashOpportunityCard}>
+          <div style={styles.dashOpportunityIcon}>🎯</div>
+          <div>
+            <div style={styles.dashOpportunityTitle}>
+              Maior oportunidade: {topOpportunity.icon} {topOpportunity.name}
+            </div>
+            <div style={styles.dashOpportunityText}>
+              {topOpportunity.disponivel} de {topOpportunity.total} espaços ainda disponíveis — até{" "}
+              {formatBRL(topOpportunity.potentialMonthly - topOpportunity.currentMonthly)}/mês de receita ainda não
+              capturada nesse espaço.
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.dashKpiGrid}>
         <div style={styles.dashKpiCard}>
           <div style={styles.dashKpiLabel}>Receita potencial máxima (mês)</div>
           <div style={styles.dashKpiValue}>{formatBRL(kpis.potentialMonthly) || "R$ 0"}</div>
@@ -1016,7 +1101,14 @@ function Dashboard({ assets, onBack, isMobile }) {
                   <td style={styles.dashTd}>{c.vendidos}</td>
                   <td style={styles.dashTd}>{c.negociacao}</td>
                   <td style={styles.dashTd}>{c.disponivel}</td>
-                  <td style={styles.dashTd}>{occ.toFixed(0)}%</td>
+                  <td style={styles.dashTd}>
+                    <div style={styles.dashOccWrap}>
+                      <div style={styles.dashOccBar}>
+                        <div style={{ ...styles.dashOccFill, width: `${Math.min(occ, 100)}%` }} />
+                      </div>
+                      <span>{occ.toFixed(0)}%</span>
+                    </div>
+                  </td>
                   <td style={styles.dashTd}>{formatBRL(c.currentMonthly) || "—"}</td>
                   <td style={styles.dashTd}>{formatBRL(c.potentialMonthly) || "—"}</td>
                 </tr>
@@ -1027,6 +1119,17 @@ function Dashboard({ assets, onBack, isMobile }) {
       </div>
 
       <div style={styles.dashSectionTitle}>Naming rights — status por espaço</div>
+      <div style={styles.namingSummaryBar}>
+        <span>
+          <strong>{namingSummary.sold}</strong> de <strong>{namingSummary.total}</strong> vendidos
+        </span>
+        <span style={styles.dashLegendDivider}>·</span>
+        <span>{formatBRL(namingSummary.soldValue) || "R$ 0"} já vendidos/ano</span>
+        <span style={styles.dashLegendDivider}>·</span>
+        <span style={{ color: "#2F7D5C", fontWeight: 800 }}>
+          {formatBRL(namingSummary.remainingPotential) || "R$ 0"} de potencial restante/ano
+        </span>
+      </div>
       <div style={styles.namingGrid}>
         {namingRights.map((n) => {
           const m = STATUS_META[n.status];
@@ -2652,6 +2755,85 @@ const styles = {
   dashHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 },
   dashTitle: { fontSize: 21, fontWeight: 800, color: "#1B2A41" },
   dashSub: { fontSize: 13, color: "#6B7280", marginTop: 3 },
+
+  dashUpdated: { fontSize: 11, color: "#9AA1AC", marginTop: 6, fontWeight: 600 },
+
+  dashHeroRow: { display: "flex", gap: 14, alignItems: "stretch" },
+  dashHeroCard: {
+    flex: "1.4 1 260px",
+    background: "linear-gradient(135deg, #1B2A41 0%, #223655 100%)",
+    borderRadius: 14,
+    padding: "24px 22px",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+  },
+  dashHeroLabel: { fontSize: 12.5, fontWeight: 700, color: "#B7C0CE" },
+  dashHeroValue: { fontSize: 38, fontWeight: 800, color: "#FFFFFF", marginTop: 6 },
+  dashHeroNote: { fontSize: 11.5, color: "rgba(255,255,255,0.6)", marginTop: 8, lineHeight: 1.4 },
+
+  dashDonutCard: {
+    flex: "1 1 220px",
+    background: "#FFFFFF",
+    border: "1px solid #E4E7EC",
+    borderRadius: 14,
+    padding: 18,
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+  },
+  dashDonut: {
+    width: 84,
+    height: 84,
+    borderRadius: "50%",
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dashDonutHole: {
+    width: 52,
+    height: 52,
+    borderRadius: "50%",
+    background: "#FFFFFF",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dashDonutTotal: { fontSize: 16, fontWeight: 800, color: "#1B2A41", lineHeight: 1 },
+  dashDonutTotalLabel: { fontSize: 8.5, color: "#9AA1AC", fontWeight: 700, textTransform: "uppercase" },
+  dashDonutLegend: { display: "flex", flexDirection: "column", gap: 6 },
+  dashLegendItem: { fontSize: 11.5, color: "#3D4757", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 },
+  dashLegendDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0 },
+  dashLegendDivider: { color: "#C7CBD1" },
+
+  dashOpportunityCard: {
+    display: "flex",
+    gap: 14,
+    alignItems: "flex-start",
+    background: "#FBF3E7",
+    border: "1px solid #EFD9AE",
+    borderRadius: 12,
+    padding: "16px 18px",
+  },
+  dashOpportunityIcon: { fontSize: 22 },
+  dashOpportunityTitle: { fontSize: 13.5, fontWeight: 800, color: "#1B2A41" },
+  dashOpportunityText: { fontSize: 12.5, color: "#6B5A3D", marginTop: 4, lineHeight: 1.5 },
+
+  dashOccWrap: { display: "flex", alignItems: "center", gap: 8 },
+  dashOccBar: { width: 60, height: 6, borderRadius: 999, background: "#EAECEF", overflow: "hidden" },
+  dashOccFill: { height: "100%", background: "#1B2A41", borderRadius: 999 },
+
+  namingSummaryBar: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    fontSize: 12.5,
+    color: "#3D4757",
+    fontWeight: 600,
+    marginTop: -6,
+  },
 
   dashKpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 },
   dashKpiCard: {
