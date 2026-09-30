@@ -271,6 +271,101 @@ function useIsMobile(breakpoint = 780) {
   return isMobile;
 }
 
+function ChangePasswordModal({ onClose }) {
+  const [pwd, setPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (pwd.length < 6) {
+      setError("A senha precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (pwd !== confirmPwd) {
+      setError("As duas senhas não são iguais.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    const { error: updateError } = await supabase.auth.updateUser({ password: pwd });
+    setSaving(false);
+    if (updateError) {
+      setError("Não foi possível trocar a senha. Tente novamente.");
+    } else {
+      setSuccess(true);
+    }
+  };
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={{ ...styles.panel, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.panelHeader}>
+          <div>
+            <div style={styles.panelEyebrow}>Segurança</div>
+            <div style={styles.panelTitle}>Trocar minha senha</div>
+          </div>
+          <button style={styles.closeBtn} onClick={onClose} aria-label="Fechar">×</button>
+        </div>
+
+        {success ? (
+          <>
+            <div style={{ ...styles.sellerNoteBox, marginTop: 16, background: "#E7F4EE", border: "1px solid #BFE3D0" }}>
+              <div style={{ fontSize: 13, color: "#1F6A45", fontWeight: 700 }}>
+                ✓ Senha alterada com sucesso. Use a nova senha no próximo login.
+              </div>
+            </div>
+            <div style={{ ...styles.panelFooter, justifyContent: "flex-end" }}>
+              <button style={styles.primaryBtn} onClick={onClose}>Fechar</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ ...styles.field, marginTop: 16 }}>
+              <label style={styles.label}>Nova senha</label>
+              <input
+                type="password"
+                style={styles.input}
+                value={pwd}
+                onChange={(e) => {
+                  setPwd(e.target.value);
+                  setError("");
+                }}
+                placeholder="Mínimo 6 caracteres"
+                autoFocus
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Confirmar nova senha</label>
+              <input
+                type="password"
+                style={styles.input}
+                value={confirmPwd}
+                onChange={(e) => {
+                  setConfirmPwd(e.target.value);
+                  setError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit();
+                }}
+                placeholder="Repita a senha nova"
+              />
+            </div>
+            {error && <div style={styles.bannerError}>{error}</div>}
+            <div style={styles.panelFooter}>
+              <button style={styles.secondaryBtn} onClick={onClose}>Cancelar</button>
+              <button style={styles.primaryBtn} onClick={submit} disabled={saving}>
+                {saving ? "Salvando…" : "Trocar senha"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Gate({ onBack }) {
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
@@ -1448,6 +1543,7 @@ function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimIte
   const [claimError, setClaimError] = useState("");
   const [claimBusy, setClaimBusy] = useState(false);
   const [newProspect, setNewProspect] = useState({});
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const byCategory = useMemo(() => {
     const map = {};
@@ -1510,11 +1606,21 @@ function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimIte
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ ...styles.userEmailTag, color: "rgba(255,255,255,0.75)" }} title={userEmail}>{userEmail}</span>
           <button style={styles.pubTeamLink} onClick={onBack}>Ver portfólio público</button>
+          <button
+            style={{ ...styles.pubTeamLink, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#FFFFFF" }}
+            onClick={() => setChangingPassword(true)}
+          >
+            Trocar senha
+          </button>
           <button style={{ ...styles.pubTeamLink, background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "#FFFFFF" }} onClick={onLogout}>
             Sair
           </button>
         </div>
       </div>
+
+      {changingPassword && (
+        <ChangePasswordModal onClose={() => setChangingPassword(false)} />
+      )}
 
       <main style={styles.pubMain}>
         <div style={{ padding: "20px 0 0" }}>
@@ -1671,6 +1777,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
   const [creatingNew, setCreatingNew] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState(false);
   const [view, setView] = useState("inventory"); // 'inventory' | 'dashboard'
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
@@ -2003,6 +2110,12 @@ export default function App() {
           </button>
           <button
             style={{ ...styles.headerGhostBtn, ...(isMobile ? styles.headerBtnMobile : {}) }}
+            onClick={() => setChangingPassword(true)}
+          >
+            Trocar senha
+          </button>
+          <button
+            style={{ ...styles.headerGhostBtn, ...(isMobile ? styles.headerBtnMobile : {}) }}
             onClick={() => supabase.auth.signOut()}
           >
             Sair
@@ -2175,6 +2288,10 @@ export default function App() {
 
       {creatingNew && (
         <NewItemModal onClose={() => setCreatingNew(false)} onCreate={handleCreateAsset} />
+      )}
+
+      {changingPassword && (
+        <ChangePasswordModal onClose={() => setChangingPassword(false)} />
       )}
     </div>
   );
