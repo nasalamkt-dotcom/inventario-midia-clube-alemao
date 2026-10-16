@@ -675,6 +675,7 @@ function NewItemModal({ onClose, onCreate }) {
 }
 
 function EditPanel({ asset, onClose, onSave, onDelete }) {
+  const [local, setLocal] = useState(asset.local || "");
   const [status, setStatus] = useState(asset.status);
   const [patrocinador, setPatrocinador] = useState(asset.patrocinador);
   const [responsavel, setResponsavel] = useState(asset.responsavel);
@@ -716,6 +717,7 @@ function EditPanel({ asset, onClose, onSave, onDelete }) {
   const save = () => {
     onSave({
       ...asset,
+      local: local.trim() || asset.local,
       status,
       patrocinador,
       responsavel,
@@ -748,6 +750,16 @@ function EditPanel({ asset, onClose, onSave, onDelete }) {
             <div style={styles.panelTitle}>{asset.local}</div>
           </div>
           <button style={styles.closeBtn} onClick={onClose} aria-label="Fechar">×</button>
+        </div>
+
+        <div style={styles.field}>
+          <label style={styles.label}>Nome / posição do espaço</label>
+          <input
+            style={styles.input}
+            value={local}
+            onChange={(e) => setLocal(e.target.value)}
+            placeholder="Ex: Painel lateral – Campo Society"
+          />
         </div>
 
         <div style={styles.itemPhotoBox}>
