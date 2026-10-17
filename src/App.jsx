@@ -1775,6 +1775,650 @@ function SellerPortal({ assets, categoryPhotos, prospects, userEmail, onClaimIte
   );
 }
 
+/* ---------------------------------------------------------
+   PROPOSTAS COMERCIAIS (área da equipe)
+   - Salvas na tabela `proposals` (Supabase), número de ordem gerado no banco.
+   - PDF: janela de impressão formatada (A4) → "Salvar como PDF".
+--------------------------------------------------------- */
+const PROPOSAL_STATUS = {
+  rascunho: { label: "Rascunho", color: "#5B6472", bg: "#EAECEF" },
+  enviada: { label: "Enviada", color: "#B8790A", bg: "#FBF0DD" },
+  aceita: { label: "Aceita", color: "#2F7D5C", bg: "#E7F4EE" },
+  recusada: { label: "Recusada", color: "#C4232C", bg: "#FBE7E8" },
+};
+
+const DEFAULT_INTRO =
+  "É com satisfação que o Deutscher Klub Pernambuco apresenta esta proposta de patrocínio e mídia, " +
+  "pensada para conectar a sua marca a um público qualificado e engajado, em um ambiente exclusivo " +
+  "de convivência, esporte e eventos.";
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const addDaysISO = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+const fmtDate = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(String(iso).slice(0, 10) + "T12:00:00");
+  return isNaN(d) ? "—" : d.toLocaleDateString("pt-BR");
+};
+const money2 = (n) =>
+  Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const escHtml = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const newKey = () => Math.random().toString(36).slice(2, 10);
+
+function emptyProposalData() {
+  return {
+    prospect: { empresa: "", contato: "", cargo: "", email: "", telefone: "" },
+    emissao: todayISO(),
+    validade: addDaysISO(15),
+    intro: DEFAULT_INTRO,
+    itens: [],
+    desconto: { tipo: "pct", valor: 0 },
+    pagamento: "",
+    vigencia: "",
+    observacoes: "",
+  };
+}
+
+function itemFromAsset(a) {
+  const per = getPeriodicidade(a);
+  return {
+    key: newKey(),
+    assetId: a.id,
+    categoria: a.categoria,
+    local: a.local,
+    tipoMidia: a.tipoMidia || "",
+    tamanho: a.tamanho || "",
+    periodicidade: per,
+    valor: getValorNumero(a) ?? 0,
+    qtd: per === "mensal" ? 12 : 1,
+    nota: "",
+  };
+}
+
+function calcProposal(data) {
+  const subtotal = (data.itens || []).reduce(
+    (s, it) => s + (Number(it.valor) || 0) * (Number(it.qtd) || 0),
+    0
+  );
+  const raw =
+    data.desconto?.tipo === "pct"
+      ? (subtotal * (Number(data.desconto?.valor) || 0)) / 100
+      : Number(data.desconto?.valor) || 0;
+  const desconto = Math.min(Math.max(raw, 0), subtotal);
+  return { subtotal, desconto, total: subtotal - desconto };
+}
+
+const QTD_UNIT = { mensal: "meses", anual: "anos", evento: "eventos", avulso: "un." };
+
+function buildProposalHtml(p) {
+  const d = p.data || {};
+  const pr = d.prospect || {};
+  const { subtotal, desconto, total } = calcProposal(d);
+  const catName = (id) => CATEGORIES.find((c) => c.id === id)?.name || "Geral";
+  const rows = (d.itens || [])
+    .map((it) => {
+      const per = PERIODICIDADE_META[it.periodicidade]?.suffix || "";
+      const line = (Number(it.valor) || 0) * (Number(it.qtd) || 0);
+      const detalhes = [it.tipoMidia, it.tamanho].filter(Boolean).join(" · ");
+      return `<tr>
+        <td><div class="it-cat">${escHtml(catName(it.categoria))}</div>
+          <div class="it-name">${escHtml(it.local)}</div>
+          ${detalhes ? `<div class="it-det">${escHtml(detalhes)}</div>` : ""}
+          ${it.nota ? `<div class="it-note">${escHtml(it.nota)}</div>` : ""}</td>
+        <td class="r">${money2(it.valor)}<div class="it-det">${escHtml(per)}</div></td>
+        <td class="r">${escHtml(it.qtd)} <span class="it-det">${escHtml(QTD_UNIT[it.periodicidade] || "un.")}</span></td>
+        <td class="r b">${money2(line)}</td></tr>`;
+    })
+    .join("");
+  const block = (title, text) =>
+    text && String(text).trim()
+      ? `<div class="blk"><h3>${title}</h3><p>${escHtml(text).replace(/\n/g, "<br>")}</p></div>`
+      : "";
+  const contato = [pr.contato && (pr.cargo ? `${pr.contato} · ${pr.cargo}` : pr.contato), pr.email, pr.telefone]
+    .filter(Boolean)
+    .map(escHtml)
+    .join("<br>");
+
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<title>Proposta ${escHtml(p.numero)} - ${escHtml(pr.empresa || "Clube Alemão")}</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 14mm 14mm 16mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Manrope", Arial, sans-serif; color: #1B2A41; font-size: 12px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .bar { position: sticky; top: 0; background: #12203A; color: #fff; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; z-index: 5; }
+  .bar button { background: #F5A800; color: #1B2A41; border: 0; border-radius: 8px; padding: 9px 16px; font-weight: 800; cursor: pointer; font-family: inherit; }
+  @media print { .bar { display: none; } }
+  .page { max-width: 190mm; margin: 0 auto; padding: 8mm 0; }
+  .head { background: #12203A; color: #fff; border-radius: 10px; padding: 16px 20px; display: flex; align-items: center; gap: 16px; border-bottom: 4px solid #F5A800; }
+  .head img { width: 58px; height: 58px; background: #fff; border-radius: 10px; padding: 5px; object-fit: contain; }
+  .head .org { font-weight: 800; font-size: 15px; }
+  .head .sub { font-size: 10.5px; color: #B7C0CE; }
+  .head .num { margin-left: auto; text-align: right; }
+  .head .num small { display: block; font-size: 9.5px; letter-spacing: .12em; color: #F5A800; font-weight: 800; }
+  .head .num b { font-size: 17px; }
+  h1 { font-size: 21px; margin: 20px 0 4px; }
+  .meta { display: flex; gap: 12px; margin: 12px 0 16px; }
+  .meta > div { flex: 1; border: 1px solid #E4E7EC; border-radius: 8px; padding: 10px 12px; }
+  .meta small { display: block; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: #6B7482; font-weight: 800; margin-bottom: 3px; }
+  .meta b { font-size: 13px; }
+  .intro { margin: 0 0 16px; color: #3A4658; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  th { text-align: left; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: #fff; background: #1B2A41; padding: 8px 10px; }
+  th.r, td.r { text-align: right; }
+  td { padding: 9px 10px; border-bottom: 1px solid #E4E7EC; vertical-align: top; }
+  tr { break-inside: avoid; }
+  .b { font-weight: 800; }
+  .it-cat { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: #B8790A; font-weight: 800; }
+  .it-name { font-weight: 700; font-size: 12.5px; }
+  .it-det { font-size: 10.5px; color: #6B7482; }
+  .it-note { font-size: 11px; color: #3A4658; margin-top: 2px; font-style: italic; }
+  .totals { margin: 12px 0 0 auto; width: 260px; break-inside: avoid; }
+  .totals div { display: flex; justify-content: space-between; padding: 4px 0; }
+  .totals .grand { margin-top: 6px; background: #12203A; color: #fff; border-radius: 8px; padding: 10px 12px; font-size: 15px; font-weight: 800; border-left: 4px solid #F5A800; }
+  .grand span:last-child { color: #F5A800; }
+  .blk { margin-top: 16px; break-inside: avoid; }
+  .blk h3 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #12203A; border-bottom: 2px solid #F5A800; display: inline-block; padding-bottom: 2px; margin: 0 0 6px; }
+  .blk p { margin: 0; color: #3A4658; }
+  .foot { margin-top: 26px; padding-top: 10px; border-top: 1px solid #E4E7EC; font-size: 10px; color: #6B7482; display: flex; justify-content: space-between; }
+</style></head><body>
+<div class="bar"><span>Pré-visualização da proposta ${escHtml(p.numero)} — na janela de impressão, escolha <b>Salvar como PDF</b>.</span><button onclick="window.print()">Salvar / imprimir PDF</button></div>
+<div class="page">
+  <div class="head">
+    <img src="${CREST_LOGO}" alt="">
+    <div><div class="org">Deutscher Klub Pernambuco</div><div class="sub">Setor de Eventos e Experiência do Sócio</div></div>
+    <div class="num"><small>PROPOSTA Nº</small><b>${escHtml(p.numero)}</b></div>
+  </div>
+  <h1>Proposta Comercial de Patrocínio e Mídia</h1>
+  <div class="meta">
+    <div><small>Para</small><b>${escHtml(pr.empresa || "—")}</b><div style="margin-top:3px;color:#3A4658">${contato}</div></div>
+    <div><small>Emitida em</small><b>${fmtDate(d.emissao)}</b></div>
+    <div><small>Válida até</small><b>${fmtDate(d.validade)}</b></div>
+  </div>
+  ${d.intro ? `<p class="intro">${escHtml(d.intro).replace(/\n/g, "<br>")}</p>` : ""}
+  <table>
+    <thead><tr><th>Espaço / ativo</th><th class="r">Valor</th><th class="r">Qtd.</th><th class="r">Total</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="4" style="color:#6B7482">Nenhum item incluído.</td></tr>`}</tbody>
+  </table>
+  <div class="totals">
+    <div><span>Subtotal</span><span>${money2(subtotal)}</span></div>
+    ${desconto > 0 ? `<div><span>Desconto${d.desconto?.tipo === "pct" ? ` (${escHtml(d.desconto.valor)}%)` : ""}</span><span>− ${money2(desconto)}</span></div>` : ""}
+    <div class="grand"><span>Investimento total</span><span>${money2(total)}</span></div>
+  </div>
+  ${block("Vigência do contrato", d.vigencia)}
+  ${block("Condições de pagamento", d.pagamento)}
+  ${block("Observações", d.observacoes)}
+  <div class="foot"><span>Deutscher Klub Pernambuco · Proposta ${escHtml(p.numero)}</span><span>Válida até ${fmtDate(d.validade)}</span></div>
+</div>
+<script>
+  window.addEventListener("load", function () {
+    var go = function () { setTimeout(function () { window.print(); }, 300); };
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(go); } else { go(); }
+  });
+</script>
+</body></html>`;
+}
+
+// Abre a janela ANTES de qualquer await (senão o navegador bloqueia o pop-up).
+function openProposalWindow() {
+  const w = window.open("", "_blank");
+  if (w) w.document.write("<p style='font-family:sans-serif;padding:24px'>Gerando proposta…</p>");
+  return w;
+}
+function renderProposalWindow(w, proposal) {
+  if (!w || w.closed) return false;
+  w.document.open();
+  w.document.write(buildProposalHtml(proposal));
+  w.document.close();
+  return true;
+}
+
+const pS = {
+  wrap: { maxWidth: 1100, margin: "0 auto", padding: "20px 16px 60px" },
+  topRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 },
+  title: { fontSize: 22, fontWeight: 800, color: "#1B2A41", margin: 0 },
+  sub: { fontSize: 13, color: "#6B7482", marginTop: 2 },
+  primary: { padding: "11px 18px", borderRadius: 8, border: "none", background: "#F5A800", color: "#1B2A41", fontSize: 13, fontWeight: 800 },
+  secondary: { padding: "10px 16px", borderRadius: 8, border: "1px solid #CBD2DC", background: "#fff", color: "#1B2A41", fontSize: 13, fontWeight: 700 },
+  danger: { padding: "8px 12px", borderRadius: 8, border: "1px solid #E9B7BA", background: "#fff", color: "#C4232C", fontSize: 12, fontWeight: 700 },
+  small: { padding: "7px 12px", borderRadius: 8, border: "1px solid #CBD2DC", background: "#fff", color: "#1B2A41", fontSize: 12, fontWeight: 700 },
+  card: { background: "#fff", border: "1px solid #E4E7EC", borderRadius: 12, padding: 16, marginBottom: 14 },
+  cardTitle: { fontSize: 13, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: "#12203A", margin: "0 0 12px" },
+  grid: { display: "flex", gap: 12, flexWrap: "wrap" },
+  field: { flex: "1 1 200px", display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
+  label: { fontSize: 11.5, fontWeight: 700, color: "#5B6472" },
+  input: { padding: "10px 12px", borderRadius: 8, border: "1px solid #CBD2DC", fontSize: 14, color: "#1B2A41", background: "#fff", width: "100%", boxSizing: "border-box" },
+  textarea: { padding: "10px 12px", borderRadius: 8, border: "1px solid #CBD2DC", fontSize: 14, color: "#1B2A41", minHeight: 80, resize: "vertical", width: "100%", boxSizing: "border-box" },
+  itemBox: { border: "1px solid #E4E7EC", borderRadius: 10, padding: 12, marginBottom: 10, background: "#FAFBFC" },
+  badge: (st) => ({ display: "inline-block", padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 800, color: PROPOSAL_STATUS[st]?.color, background: PROPOSAL_STATUS[st]?.bg }),
+  err: { background: "#FBE7E8", color: "#C4232C", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 12 },
+  totalBar: { background: "#12203A", color: "#fff", borderRadius: 12, padding: "14px 18px", borderLeft: "5px solid #F5A800", marginBottom: 14 },
+};
+
+function ProposalEditor({ initial, assets, onClose, onSaved, userEmail }) {
+  const [proposal, setProposal] = useState(initial); // {id?, numero?, status, data}
+  const [data, setData] = useState(initial.data);
+  const [status, setStatus] = useState(initial.status || "rascunho");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [pickCat, setPickCat] = useState("all");
+  const [pickId, setPickId] = useState("");
+
+  const set = (patch) => setData((d) => ({ ...d, ...patch }));
+  const setPros = (patch) => setData((d) => ({ ...d, prospect: { ...d.prospect, ...patch } }));
+  const setItem = (key, patch) =>
+    setData((d) => ({ ...d, itens: d.itens.map((it) => (it.key === key ? { ...it, ...patch } : it)) }));
+  const { subtotal, desconto, total } = calcProposal(data);
+
+  const options = useMemo(
+    () => assets.filter((a) => pickCat === "all" || a.categoria === pickCat),
+    [assets, pickCat]
+  );
+
+  const addAsset = () => {
+    const a = assets.find((x) => x.id === pickId);
+    if (!a) return;
+    set({ itens: [...data.itens, itemFromAsset(a)] });
+    setPickId("");
+  };
+  const addCustom = () =>
+    set({
+      itens: [
+        ...data.itens,
+        { key: newKey(), assetId: null, categoria: "geral", local: "Item personalizado", tipoMidia: "", tamanho: "", periodicidade: "avulso", valor: 0, qtd: 1, nota: "" },
+      ],
+    });
+
+  // Salva (cria ou atualiza). Retorna a proposta salva ou null.
+  const persist = async () => {
+    setErr("");
+    if (!data.prospect.empresa.trim()) {
+      setErr("Informe o nome do prospect (empresa) antes de salvar.");
+      return null;
+    }
+    try {
+      if (proposal.id) {
+        const { data: row, error } = await supabase
+          .from("proposals")
+          .update({ prospect: data.prospect.empresa.trim(), total, status, data, updated_at: new Date().toISOString() })
+          .eq("id", proposal.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setProposal(row);
+        onSaved(row);
+        return row;
+      }
+      const { data: row, error } = await supabase.rpc("create_proposal", {
+        p_prospect: data.prospect.empresa.trim(),
+        p_total: total,
+        p_data: data,
+      });
+      if (error) throw error;
+      let saved = row;
+      if (status !== "rascunho") {
+        const upd = await supabase.from("proposals").update({ status }).eq("id", row.id).select().single();
+        if (!upd.error) saved = upd.data;
+      }
+      setProposal(saved);
+      onSaved(saved);
+      return saved;
+    } catch (e) {
+      console.error(e);
+      setErr(
+        /relation .*proposals|create_proposal|does not exist|schema cache/i.test(e.message || "")
+          ? "O módulo de propostas ainda não foi ativado no banco (rode o arquivo supabase-propostas.sql no Supabase)."
+          : "Não foi possível salvar: " + (e.message || "erro desconhecido")
+      );
+      return null;
+    }
+  };
+
+  const handleSave = async () => {
+    setBusy(true);
+    setMsg("");
+    const saved = await persist();
+    setBusy(false);
+    if (saved) setMsg("✓ Proposta salva — " + saved.numero);
+  };
+
+  const handlePdf = async () => {
+    const w = openProposalWindow();
+    setBusy(true);
+    setMsg("");
+    const saved = await persist();
+    setBusy(false);
+    if (!saved) {
+      if (w) w.close();
+      return;
+    }
+    if (!renderProposalWindow(w, saved)) {
+      setErr("O navegador bloqueou a nova janela. Permita pop-ups para este site e tente de novo.");
+    } else {
+      setMsg("✓ Proposta salva — " + saved.numero);
+    }
+  };
+
+  return (
+    <div style={pS.wrap}>
+      <div style={pS.topRow}>
+        <div>
+          <h2 style={pS.title}>
+            {proposal.numero ? `Proposta ${proposal.numero}` : "Nova proposta"}
+          </h2>
+          <div style={pS.sub}>As edições de valor valem só para esta proposta — o inventário não é alterado.</div>
+        </div>
+        <button style={pS.secondary} onClick={onClose}>← Voltar à lista</button>
+      </div>
+
+      {err && <div style={pS.err}>{err}</div>}
+
+      <div style={pS.card}>
+        <h3 style={pS.cardTitle}>Prospect</h3>
+        <div style={pS.grid}>
+          <div style={{ ...pS.field, flex: "2 1 260px" }}>
+            <label style={pS.label}>Empresa / patrocinador em potencial *</label>
+            <input style={pS.input} value={data.prospect.empresa} onChange={(e) => setPros({ empresa: e.target.value })} />
+          </div>
+          <div style={pS.field}>
+            <label style={pS.label}>Contato (nome)</label>
+            <input style={pS.input} value={data.prospect.contato} onChange={(e) => setPros({ contato: e.target.value })} />
+          </div>
+          <div style={pS.field}>
+            <label style={pS.label}>Cargo</label>
+            <input style={pS.input} value={data.prospect.cargo} onChange={(e) => setPros({ cargo: e.target.value })} />
+          </div>
+          <div style={pS.field}>
+            <label style={pS.label}>E-mail</label>
+            <input style={pS.input} type="email" value={data.prospect.email} onChange={(e) => setPros({ email: e.target.value })} />
+          </div>
+          <div style={pS.field}>
+            <label style={pS.label}>Telefone / WhatsApp</label>
+            <input style={pS.input} value={data.prospect.telefone} onChange={(e) => setPros({ telefone: e.target.value })} />
+          </div>
+        </div>
+      </div>
+
+      <div style={pS.card}>
+        <h3 style={pS.cardTitle}>Dados da proposta</h3>
+        <div style={pS.grid}>
+          <div style={pS.field}>
+            <label style={pS.label}>Data de emissão</label>
+            <input style={pS.input} type="date" value={data.emissao} onChange={(e) => set({ emissao: e.target.value })} />
+          </div>
+          <div style={pS.field}>
+            <label style={pS.label}>Válida até</label>
+            <input style={pS.input} type="date" value={data.validade} onChange={(e) => set({ validade: e.target.value })} />
+          </div>
+          <div style={pS.field}>
+            <label style={pS.label}>Status</label>
+            <select style={pS.input} value={status} onChange={(e) => setStatus(e.target.value)}>
+              {Object.entries(PROPOSAL_STATUS).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div style={{ ...pS.field, marginTop: 12 }}>
+          <label style={pS.label}>Texto de apresentação (aparece no início do PDF)</label>
+          <textarea style={pS.textarea} value={data.intro} onChange={(e) => set({ intro: e.target.value })} />
+        </div>
+      </div>
+
+      <div style={pS.card}>
+        <h3 style={pS.cardTitle}>Espaços incluídos</h3>
+        <div style={{ ...pS.grid, alignItems: "flex-end", marginBottom: 14 }}>
+          <div style={pS.field}>
+            <label style={pS.label}>Categoria</label>
+            <select style={pS.input} value={pickCat} onChange={(e) => { setPickCat(e.target.value); setPickId(""); }}>
+              <option value="all">Todas</option>
+              {CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ ...pS.field, flex: "2 1 280px" }}>
+            <label style={pS.label}>Espaço do inventário</label>
+            <select style={pS.input} value={pickId} onChange={(e) => setPickId(e.target.value)}>
+              <option value="">Selecione…</option>
+              {options.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.local} — {STATUS_META[a.status]?.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button style={pS.primary} onClick={addAsset} disabled={!pickId}>+ Adicionar</button>
+          <button style={pS.secondary} onClick={addCustom}>+ Item personalizado</button>
+        </div>
+
+        {data.itens.length === 0 && (
+          <div style={{ color: "#6B7482", fontSize: 13 }}>Nenhum espaço adicionado ainda.</div>
+        )}
+        {data.itens.map((it) => (
+          <div key={it.key} style={pS.itemBox}>
+            <div style={pS.grid}>
+              <div style={{ ...pS.field, flex: "3 1 260px" }}>
+                <label style={pS.label}>
+                  {CATEGORIES.find((c) => c.id === it.categoria)?.name || "Personalizado"} · nome na proposta
+                </label>
+                <input style={pS.input} value={it.local} onChange={(e) => setItem(it.key, { local: e.target.value })} />
+              </div>
+              <div style={{ ...pS.field, flex: "1 1 120px" }}>
+                <label style={pS.label}>Valor unitário (R$)</label>
+                <input style={pS.input} type="number" min="0" value={it.valor} onChange={(e) => setItem(it.key, { valor: e.target.value })} />
+              </div>
+              <div style={{ ...pS.field, flex: "1 1 100px" }}>
+                <label style={pS.label}>Qtd. ({QTD_UNIT[it.periodicidade] || "un."})</label>
+                <input style={pS.input} type="number" min="0" value={it.qtd} onChange={(e) => setItem(it.key, { qtd: e.target.value })} />
+              </div>
+              <div style={{ ...pS.field, flex: "1 1 130px", justifyContent: "flex-end" }}>
+                <label style={pS.label}>Total do item</label>
+                <div style={{ fontWeight: 800, fontSize: 15, padding: "9px 0" }}>
+                  {money2((Number(it.valor) || 0) * (Number(it.qtd) || 0))}
+                </div>
+              </div>
+            </div>
+            <div style={{ ...pS.grid, marginTop: 10, alignItems: "flex-end" }}>
+              <div style={{ ...pS.field, flex: "3 1 300px" }}>
+                <label style={pS.label}>Anotação para o prospect (opcional)</label>
+                <input style={pS.input} value={it.nota} onChange={(e) => setItem(it.key, { nota: e.target.value })} placeholder="Ex: inclui produção da arte e instalação" />
+              </div>
+              <button style={pS.danger} onClick={() => set({ itens: data.itens.filter((x) => x.key !== it.key) })}>Remover</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={pS.card}>
+        <h3 style={pS.cardTitle}>Desconto, condições e observações</h3>
+        <div style={pS.grid}>
+          <div style={{ ...pS.field, flex: "1 1 140px" }}>
+            <label style={pS.label}>Tipo de desconto</label>
+            <select style={pS.input} value={data.desconto.tipo} onChange={(e) => set({ desconto: { ...data.desconto, tipo: e.target.value } })}>
+              <option value="pct">Percentual (%)</option>
+              <option value="valor">Valor fixo (R$)</option>
+            </select>
+          </div>
+          <div style={{ ...pS.field, flex: "1 1 140px" }}>
+            <label style={pS.label}>Desconto</label>
+            <input style={pS.input} type="number" min="0" value={data.desconto.valor} onChange={(e) => set({ desconto: { ...data.desconto, valor: e.target.value } })} />
+          </div>
+          <div style={{ ...pS.field, flex: "2 1 260px" }}>
+            <label style={pS.label}>Vigência do contrato</label>
+            <input style={pS.input} value={data.vigencia} onChange={(e) => set({ vigencia: e.target.value })} placeholder="Ex: 12 meses a partir da assinatura" />
+          </div>
+        </div>
+        <div style={{ ...pS.field, marginTop: 12 }}>
+          <label style={pS.label}>Condições de pagamento</label>
+          <textarea style={{ ...pS.textarea, minHeight: 60 }} value={data.pagamento} onChange={(e) => set({ pagamento: e.target.value })} placeholder="Ex: 50% na assinatura e 50% em 30 dias, via boleto ou PIX" />
+        </div>
+        <div style={{ ...pS.field, marginTop: 12 }}>
+          <label style={pS.label}>Observações finais</label>
+          <textarea style={{ ...pS.textarea, minHeight: 60 }} value={data.observacoes} onChange={(e) => set({ observacoes: e.target.value })} />
+        </div>
+      </div>
+
+      <div style={pS.totalBar}>
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontSize: 13, color: "#B7C0CE" }}>
+          <span>Subtotal {money2(subtotal)}</span>
+          <span>Desconto − {money2(desconto)}</span>
+        </div>
+        <div style={{ fontSize: 24, fontWeight: 800, color: "#F5A800", marginTop: 4 }}>
+          Investimento total {money2(total)}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <button style={pS.primary} onClick={handlePdf} disabled={busy}>
+          {busy ? "Salvando…" : "Salvar e gerar PDF"}
+        </button>
+        <button style={pS.secondary} onClick={handleSave} disabled={busy}>Salvar</button>
+        {msg && <span style={{ color: "#2F7D5C", fontWeight: 700, fontSize: 13 }}>{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Proposals({ assets, onBack, isMobile, userEmail }) {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr("");
+    const { data, error } = await supabase
+      .from("proposals")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error(error);
+      setErr(
+        /relation .*proposals|does not exist|schema cache/i.test(error.message || "")
+          ? "O módulo de propostas ainda não foi ativado no banco. Rode o arquivo supabase-propostas.sql no Supabase."
+          : "Não foi possível carregar as propostas: " + error.message
+      );
+    } else {
+      setList(data || []);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const upsertLocal = (row) =>
+    setList((l) => (l.some((x) => x.id === row.id) ? l.map((x) => (x.id === row.id ? row : x)) : [row, ...l]));
+
+  const duplicate = (p) => {
+    const d = JSON.parse(JSON.stringify(p.data || emptyProposalData()));
+    d.emissao = todayISO();
+    d.validade = addDaysISO(15);
+    d.itens = (d.itens || []).map((it) => ({ ...it, key: newKey() }));
+    setEditing({ status: "rascunho", data: d });
+  };
+
+  const remove = async (p) => {
+    if (!window.confirm(`Excluir a proposta ${p.numero} (${p.prospect})? Esta ação é irreversível.`)) return;
+    const { error } = await supabase.from("proposals").delete().eq("id", p.id);
+    if (error) setErr("Não foi possível excluir: " + error.message);
+    else setList((l) => l.filter((x) => x.id !== p.id));
+  };
+
+  const reprint = (p) => {
+    const w = openProposalWindow();
+    if (!renderProposalWindow(w, p)) setErr("O navegador bloqueou a nova janela. Permita pop-ups para este site.");
+  };
+
+  const filtered = list.filter(
+    (p) =>
+      (statusFilter === "all" || p.status === statusFilter) &&
+      (!q.trim() || (p.prospect + " " + p.numero).toLowerCase().includes(q.trim().toLowerCase()))
+  );
+
+  if (editing) {
+    return (
+      <ProposalEditor
+        initial={editing}
+        assets={assets}
+        userEmail={userEmail}
+        onSaved={upsertLocal}
+        onClose={() => setEditing(null)}
+      />
+    );
+  }
+
+  return (
+    <div style={pS.wrap}>
+      <div style={pS.topRow}>
+        <div>
+          <h2 style={pS.title}>Propostas comerciais</h2>
+          <div style={pS.sub}>Monte propostas personalizadas para possíveis patrocinadores e gere o PDF.</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={pS.secondary} onClick={onBack}>← Inventário</button>
+          <button style={pS.primary} onClick={() => setEditing({ status: "rascunho", data: emptyProposalData() })}>
+            + Nova proposta
+          </button>
+        </div>
+      </div>
+
+      {err && <div style={pS.err}>{err}</div>}
+
+      <div style={{ ...pS.grid, marginBottom: 14 }}>
+        <input style={{ ...pS.input, flex: "2 1 240px", width: "auto" }} placeholder="Buscar por prospect ou número…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select style={{ ...pS.input, flex: "1 1 160px", width: "auto" }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">Todos os status</option>
+          {Object.entries(PROPOSAL_STATUS).map(([k, v]) => (
+            <option key={k} value={k}>{v.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {loading && <div style={{ color: "#6B7482" }}>Carregando…</div>}
+      {!loading && !err && filtered.length === 0 && (
+        <div style={{ ...pS.card, color: "#6B7482" }}>
+          {list.length === 0 ? "Nenhuma proposta criada ainda. Clique em “Nova proposta”." : "Nenhuma proposta encontrada para esse filtro."}
+        </div>
+      )}
+      {filtered.map((p) => (
+        <div key={p.id} style={{ ...pS.card, marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#B8790A", letterSpacing: ".06em" }}>{p.numero}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#1B2A41" }}>{p.prospect || "—"}</div>
+              <div style={{ fontSize: 12.5, color: "#6B7482", marginTop: 2 }}>
+                Emitida em {fmtDate(p.data?.emissao)} · válida até {fmtDate(p.data?.validade)}
+                {p.created_by ? ` · ${p.created_by}` : ""}
+              </div>
+            </div>
+            <div style={{ textAlign: isMobile ? "left" : "right" }}>
+              <div style={{ fontSize: 18, fontWeight: 800 }}>{money2(p.total)}</div>
+              <span style={pS.badge(p.status)}>{PROPOSAL_STATUS[p.status]?.label}</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+            <button style={pS.small} onClick={() => setEditing(p)}>Abrir / editar</button>
+            <button style={pS.small} onClick={() => reprint(p)}>PDF</button>
+            <button style={pS.small} onClick={() => duplicate(p)}>Duplicar</button>
+            <button style={pS.danger} onClick={() => remove(p)}>Excluir</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function App() {
   const [mode, setMode] = useState("landing"); // 'landing' | 'public' | 'team' | 'seller'
   const [unlocked, setUnlocked] = useState(false);
@@ -1791,7 +2435,7 @@ export default function App() {
   const [creatingNew, setCreatingNew] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState(false);
-  const [view, setView] = useState("inventory"); // 'inventory' | 'dashboard'
+  const [view, setView] = useState("inventory"); // 'inventory' | 'dashboard' | 'proposals'
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
   const [dbError, setDbError] = useState(false);
   const debouncedSearch = useDebounced(search, 200);
@@ -2121,6 +2765,12 @@ export default function App() {
             {view === "dashboard" ? "Ver inventário" : "Dashboard"}
           </button>
           <button
+            style={{ ...styles.dashboardBtn, ...(isMobile ? styles.headerBtnMobile : {}) }}
+            onClick={() => setView(view === "proposals" ? "inventory" : "proposals")}
+          >
+            {view === "proposals" ? "Ver inventário" : "Propostas"}
+          </button>
+          <button
             style={{ ...styles.headerGhostBtn, ...(isMobile ? styles.headerBtnMobile : {}) }}
             onClick={() => setChangingPassword(true)}
           >
@@ -2152,6 +2802,8 @@ export default function App() {
 
       {view === "dashboard" ? (
         <Dashboard assets={assets} onBack={() => setView("inventory")} isMobile={isMobile} />
+      ) : view === "proposals" ? (
+        <Proposals assets={assets} onBack={() => setView("inventory")} isMobile={isMobile} userEmail={userEmail} />
       ) : (
         <>
       <div style={{ ...styles.statsRow, ...(isMobile ? styles.statsRowMobile : {}) }}>
